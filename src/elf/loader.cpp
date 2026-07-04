@@ -1,4 +1,3 @@
-// loader.cpp
 #include "loader.hpp"
 
 #include <fstream>

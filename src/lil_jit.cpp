@@ -1,7 +1,10 @@
 #include "elf/loader.hpp"
+#include "riscv/interpreter.hpp"
+
 #include <iostream>
 #include <iomanip>
 #include <exception>
+#include <algorithm>
 
 int main() {
     try {
@@ -14,13 +17,17 @@ int main() {
         std::cout << "End vaddr   : 0x" << elf.end_vaddr << '\n';
         std::cout << "Memory size : " << std::dec << elf.memory.size() << " bytes\n";
 
-        // Optionally peek at the first few instruction bytes
-        std::cout << "First instruction bytes: ";
-        for (size_t i = 0; i < std::min(elf.memory.size(), size_t(12)); ++i) {
+        std::cout << "First instruction bytes at entry point: ";
+        uint64_t offset = elf.entry - elf.base_vaddr;
+        for (size_t i = 0; i < std::min<size_t>(elf.memory.size() - offset, 16); ++i) {
             std::cout << std::hex << std::setw(2) << std::setfill('0')
-                      << static_cast<int>(elf.memory[i]) << ' ';
+                    << static_cast<int>(elf.memory[offset + i]) << ' ';
         }
         std::cout << '\n';
+
+        Interpreter interpreter(elf);
+        interpreter.step();
+        interpreter.step();
 
         // --- Your interpreter loop would start here ---
         // uint64_t pc = elf.entry;
