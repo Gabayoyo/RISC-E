@@ -3,8 +3,9 @@
 
 #include <array>
 
-DecodedInstruction decode_raw_inst(uint32_t inst) {
+DecodedInstruction decode_raw_inst(uint32_t inst, uint32_t addr) {
     DecodedInstruction d;
+    d.addr   = addr;
     d.raw    = inst;
     d.opcode = inst & 0x7F;
     d.rd     = (inst >> 7)  & 0x1F;

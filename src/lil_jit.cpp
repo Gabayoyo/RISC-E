@@ -25,7 +25,7 @@ int main() {
         }
         std::cout << '\n';
 
-        Interpreter interpreter(elf);
+        Interpreter interpreter(std::move(elf));
         interpreter.step();
         interpreter.step();
 

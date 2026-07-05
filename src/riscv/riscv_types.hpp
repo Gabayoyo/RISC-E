@@ -5,6 +5,7 @@
 
 // ---- Fields extracted from a 32-bit instruction ----
 struct DecodedInstruction {
+    uint32_t addr;           // address of the instruction in memory (for debugging/tracing)
     uint32_t raw;            // original instruction word
     uint8_t  opcode;         // bits [6:0]
     uint8_t  rd;             // destination register, bits [11:7]
@@ -13,12 +14,6 @@ struct DecodedInstruction {
     uint8_t  rs2;            // source register 2, bits [24:20]
     uint8_t  funct7;         // bits [31:25] (for R-type)
     int32_t  imm;            // sign‑extended immediate (varies by type)
-
-    bool terminates_block;   // true for BRANCH, JAL, JALR, SYSTEM, etc.
-    bool is_direct_branch;   // BRANCH, JAL → target computable from imm
-    bool is_indirect_jump;   // JALR → target not statically known
-    uint32_t fallthrough_pc; // address + 4 (only valid if terminates_block == false)
-    uint32_t branch_target;  // computed for direct branches / JAL
 
     // Optional classification
     enum class Format {
