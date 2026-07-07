@@ -1,38 +1,50 @@
 #pragma once
 
-#include "operands.hpp"
-#include <array>
-#include <cstddef>
-#include <initializer_list>
-#include <cassert>
+#include "src/ir/operand.hpp"
+#include "src/ir/traits.hpp"
 
-// base operation class
+#include <string>
+#include <vector>
+#include <optional>
+#include <array>
+#include <set>
+
+// class BasicBlock;  // forward declaration
+
 class Operation {
 public:
-    virtual ~Operation();
+    virtual ~Operation() = default;
 
-    size_t operand_count() const noexcept { return num_ops_; }
+    virtual int getNumResults() const = 0;   // 0 or 1 in your current design
+    virtual int getNumOperands() const = 0;  // number of sources
 
-    // Const for read access
-    const Operand& operand(size_t idx) const;
+    std::optional<Operand> dest;      // result operand (optional)
+    std::vector<Operand> srcs;        // source operands
 
-    // Non-const for write access
-    Operand& operand(size_t idx);
-
-    // range-based helpers for loops
-    auto operands_begin() const { return operands_.cbegin(); }
-    auto operands_end()   const { return operands_.cbegin() + num_ops_; }
-
-    virtual bool is_terminator() const { return false; }
-
+    uint32_t addr; // original PC, kept for debugging
+    uint32_t raw; // original encoding
+    Traits traits; // instruction traits (control flow, memory access, etc.)
+    // BasicBlock*       parent = nullptr;
 protected:
-    Operation() = default;
+    Operation(Traits t)
+        : traits(t) {}
+};
 
-    void add_operand(Operand op);
-    void set_operands(std::initializer_list<Operand> list);
+template <typename Derived, int NumResults_, int NumOperands_, Traits Traits_>
+class OpBase : public Operation {
+public:
+    static constexpr int kNumResults = NumResults_;
+    static constexpr int kNumOperands = NumOperands_;
+    static constexpr Traits kTraits = Traits_;
 
-private:
-    static constexpr size_t max_operands = 3;
-    std::array<Operand, max_operands> operands_;
-    uint8_t num_ops_ = 0;
+    OpBase() : Operation(kTraits) {}
+
+    int getNumResults() const final { return kNumResults; }
+    int getNumOperands() const final { return kNumOperands; }
+
+    static bool classof(const Operation* op) {
+        return op->traits == kTraits &&
+               op->getNumResults() == kNumResults &&
+               op->getNumOperands() == kNumOperands;
+    }
 };
