@@ -1,13 +1,13 @@
-#include "src/riscv/decoder.hpp"
-#include "src/riscv/riscv_types.hpp"
+#include "src/decoder/decoder.hpp"
+#include "src/decoder/riscv_types.hpp"
 
 #include <array>
 
 DecodedInstruction decode_raw_inst(uint32_t inst, uint32_t addr) {
     DecodedInstruction d;
-    d.addr   = addr;
     d.raw    = inst;
     d.opcode = inst & 0x7F;
+    d.addr   = addr;
     d.rd     = (inst >> 7)  & 0x1F;
     d.funct3 = (inst >> 12) & 0x07;
     d.rs1    = (inst >> 15) & 0x1F;

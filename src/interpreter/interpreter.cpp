@@ -1,8 +1,9 @@
 #include "interpreter.hpp"
-#include "decoder.hpp"
+#include "src/decoder/decoder.hpp"
 
 #include <cstring>
 #include <iostream>
+#include <iomanip>
 
 Interpreter::Interpreter(LoadedElf elf)
     : memory_(std::move(elf.memory)),
@@ -68,11 +69,6 @@ void Interpreter::handle_ecall() {
 }
 
 void Interpreter::step() {
-    uint32_t inst = fetch_instruction(pc_);
-    std::cout << "PC: 0x" << std::hex << pc_ << " Instruction: 0x" << inst << std::dec << '\n';
-    DecodedInstruction d = decode_raw_inst(inst, pc_);
-    pc_ += 4; 
-    // After execution, pc_ += 4 (unless branch/jump changed it)
 }
 
 void Interpreter::run() {

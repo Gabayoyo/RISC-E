@@ -1,10 +1,13 @@
 #include "elf/loader.hpp"
-#include "riscv/interpreter.hpp"
+#include "interpreter/interpreter.hpp"
+#include "builder/ir_builder.hpp"
 
 #include <iostream>
 #include <iomanip>
 #include <exception>
 #include <algorithm>
+#include <vector>
+#include <utility>
 
 int main() {
     try {
@@ -15,19 +18,24 @@ int main() {
         std::cout << "Entry point : 0x" << std::hex << elf.entry << '\n';
         std::cout << "Base vaddr  : 0x" << elf.base_vaddr << '\n';
         std::cout << "End vaddr   : 0x" << elf.end_vaddr << '\n';
-        std::cout << "Memory size : " << std::dec << elf.memory.size() << " bytes\n";
+        std::cout << "Memory size : " << std::dec << elf.memory.size() << " bytes\n\n";
 
-        std::cout << "First instruction bytes at entry point: ";
-        uint64_t offset = elf.entry - elf.base_vaddr;
-        for (size_t i = 0; i < std::min<size_t>(elf.memory.size() - offset, 16); ++i) {
-            std::cout << std::hex << std::setw(2) << std::setfill('0')
-                    << static_cast<int>(elf.memory[offset + i]) << ' ';
+        std::set<uint32_t> sym_addrs;
+        for (const auto& sym : elf.symbols)
+            sym_addrs.insert(sym.address);
+
+        std::vector<DecodedInstruction> insts;
+        for (const auto& [addr, raw] : elf.instructions) {
+            DecodedInstruction d = decode_raw_inst(raw, addr);
+            insts.push_back(d);
         }
-        std::cout << '\n';
 
-        Interpreter interpreter(std::move(elf));
-        interpreter.step();
-        interpreter.step();
+        IRBuilder builder;
+        IRModule module;
+        builder.buildModule(module, insts, sym_addrs);
+
+        module.print(std::cout);
+
 
         // --- Your interpreter loop would start here ---
         // uint64_t pc = elf.entry;

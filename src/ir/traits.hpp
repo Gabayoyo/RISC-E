@@ -25,12 +25,15 @@ enum class Traits : uint16_t {
   Float      = 1 << 10, // operates on floating-point registers
   Vector     = 1 << 11, // vector extension (V)
   Compressed = 1 << 12, // 16‑bit compressed instruction (C extension)
+
+  Jump = 1 << 13, // unconditional jump (JAL, JALR)
 };
 
 // Allow bitwise combination
 constexpr Traits operator|(Traits a, Traits b) {
   return static_cast<Traits>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b));
 }
+
 constexpr bool operator&(Traits a, Traits b) {
   return (static_cast<uint16_t>(a) & static_cast<uint16_t>(b)) != 0;
 }

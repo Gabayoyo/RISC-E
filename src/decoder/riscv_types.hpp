@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <array>
+#include <algorithm>
 
 // ---- Fields extracted from a 32-bit instruction ----
 struct DecodedInstruction {
