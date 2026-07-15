@@ -1,6 +1,8 @@
 #pragma once
 
 #include "src/elf/loader.hpp"   // LoadedElf with 32‑bit addresses
+#include "src/ir/ir_module.hpp" // IRModule, IRFunction, BasicBlock, Operation
+
 #include <cstdint>
 #include <vector>
 #include <stdexcept>
@@ -25,6 +27,8 @@ public:
     Interpreter(Interpreter&&) = default;
     Interpreter& operator=(Interpreter&&) = delete;
 
+    void load(const IRModule& module);
+
     // Execute a single instruction.
     void step();
 
@@ -33,6 +37,15 @@ public:
 
     // Reset PC to entry point and zero all registers.
     void reset();
+
+    void print_code(std::ostream& os) const {
+        os << "Interpreter code (" << code_.size() << " instructions):\n";
+        for (const auto& op : code_) {
+            op->print(os, 2);
+        }
+    }
+
+    
 
     uint32_t get_pc() const { return pc_; }
     uint32_t get_register(int idx) const;
@@ -46,6 +59,7 @@ private:
     // Architectural state
     uint32_t regs_[REG_COUNT];
     uint32_t pc_;
+    std::vector<std::shared_ptr<Operation>> code_;
 
     // Helpers
     uint32_t fetch_instruction(uint32_t vaddr) const;

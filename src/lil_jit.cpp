@@ -34,8 +34,10 @@ int main() {
         IRModule module;
         builder.buildModule(module, insts, sym_addrs);
 
-        module.print(std::cout);
+        Interpreter interpreter(std::move(elf));
+        interpreter.load(module);
 
+        // now we interpret
 
         // --- Your interpreter loop would start here ---
         // uint64_t pc = elf.entry;

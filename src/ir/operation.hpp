@@ -15,6 +15,7 @@ class BasicBlock;  // forward declaration
 class Operation {
 public:
     virtual ~Operation() = default;
+    
     virtual std::string mnemonic() const = 0;
 
     Traits traits = Traits::None;
@@ -22,6 +23,9 @@ public:
     uint32_t raw = 0;
 
     BasicBlock* parent = nullptr;
+
+    virtual std::optional<uint32_t> targetAddr()              const { return std::nullopt; }
+    virtual void                    patchTargetIndex(int32_t) {}
 
     virtual void print(std::ostream& os, int indent = 0) const {
         os << std::string(indent, ' ')

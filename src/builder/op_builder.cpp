@@ -72,6 +72,7 @@ static void fillBType(BType& op, const DecodedInstruction& d) {
     op.rs2    = Reg{d.rs2};
     op.imm    = Imm{d.imm};   // already sign-extended PC-relative offset
     op.funct3 = d.funct3;
+    op.rawTarget = d.addr + static_cast<uint32_t>(d.imm);
 }
 
 // Primary decode dispatch
@@ -238,6 +239,7 @@ std::unique_ptr<Operation> OpBuilder::tryDecodeJal(const DecodedInstruction& d) 
     auto op = std::make_unique<JalOp>();
     op->rd  = Reg{d.rd};
     op->imm = Imm{d.imm};  // already sign-extended PC-relative offset
+    op->rawTarget = d.addr + static_cast<uint32_t>(d.imm);
     return op;
 }
 

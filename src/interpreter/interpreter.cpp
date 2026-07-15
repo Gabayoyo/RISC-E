@@ -1,9 +1,15 @@
 #include "interpreter.hpp"
 #include "src/decoder/decoder.hpp"
+#include "src/ir/ir.hpp"
 
 #include <cstring>
+#include <cstdint>
 #include <iostream>
 #include <iomanip>
+#include <unordered_map>
+#include <vector>
+#include <algorithm>
+#include <utility>
 
 Interpreter::Interpreter(LoadedElf elf)
     : memory_(std::move(elf.memory)),
@@ -13,6 +19,56 @@ Interpreter::Interpreter(LoadedElf elf)
 {
     reset();
 }
+
+void Interpreter::load(const IRModule& module)
+{
+    // ── Pass 1: decode every instruction, record address → flat index ──────
+    std::vector<std::shared_ptr<Operation>> flat;
+    std::unordered_map<uint32_t, uint32_t>  addrToIndex; // addr → flat idx
+
+    for (const auto& fn : module.functions) {
+        for (const auto& bb : fn->blocks) {
+            for (auto& instr : bb->instructions) {
+                // Re-decode from the raw word so OpBuilder can produce the
+                // concrete subclass (including any JumpPatchable ones).
+                uint32_t idx = static_cast<uint32_t>(flat.size());
+                addrToIndex[instr->addr] = idx;
+
+                flat.push_back(instr); // clone to get a unique_ptr
+            }
+        }
+    }
+
+    // ── Pass 2: rewrite branch/jump targets from addresses to flat indices ──
+    for (auto& op : flat) {
+        if (auto* p = dynamic_cast<BType*>(op.get())) {
+            uint32_t targetAddr = p->rawTarget;
+            auto it = addrToIndex.find(targetAddr);
+            if (it == addrToIndex.end()) {
+                throw std::runtime_error(
+                    "flattenIRModule: branch target 0x"
+                    + std::to_string(targetAddr)
+                    + " has no corresponding instruction in the module");
+            }
+            p->targetIndex = static_cast<int32_t>(it->second);
+        }
+
+        if (auto* p = dynamic_cast<JType*>(op.get())) {
+            uint32_t targetAddr = p->rawTarget;
+            auto it = addrToIndex.find(targetAddr);
+            if (it == addrToIndex.end()) {
+                throw std::runtime_error(
+                    "flattenIRModule: jal target 0x"
+                    + std::to_string(targetAddr)
+                    + " has no corresponding instruction in the module");
+            }
+            p->targetIndex = static_cast<int32_t>(it->second);
+        }
+    }
+
+    code_ = std::move(flat);
+}
+
 
 void Interpreter::reset() {
     std::memset(regs_, 0, sizeof(regs_));

@@ -2,6 +2,8 @@
 
 #include "src/ir/operation.hpp"
 #include <string>
+#include <array>
+#include <set>
 
 // ============================================================
 // RISC-V format base classes
@@ -43,6 +45,12 @@ public:
     Imm imm;
     uint8_t funct3;
 
+    uint32_t rawTarget  = 0;    // absolute target address (set by tryDecodeBranch)
+    int32_t  targetIndex = -1;  // flat array index (set by lowerToFlatOps)
+
+    std::optional<uint32_t> targetAddr() const override { return rawTarget; }
+    void patchTargetIndex(int32_t idx)         override { targetIndex = idx; }
+
     BType(Traits t = Traits::Branch) : Operation(t) {}
 };
 
@@ -60,6 +68,12 @@ class JType : public Operation {
 public:
     Reg rd;
     Imm imm;
+
+    uint32_t rawTarget   = 0; // absolute target address (set by tryDecodeJal)
+    int32_t  targetIndex = -1;
+
+    std::optional<uint32_t> targetAddr() const override { return rawTarget; }
+    void patchTargetIndex(int32_t idx)         override { targetIndex = idx; }
 
     JType(Traits t = Traits::Jump) : Operation(t) {}
 };

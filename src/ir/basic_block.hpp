@@ -13,7 +13,7 @@ public:
     uint32_t                 startAddr;
     uint32_t                 endAddr;     // addr of last instruction
 
-    std::vector<std::unique_ptr<Operation>> instructions;
+    std::vector<std::shared_ptr<Operation>> instructions;
 
     IRFunction* parent = nullptr; // back pointer to containing function
 
@@ -27,9 +27,9 @@ public:
         return nullptr; // fall-through block
     }
 
-    void addOperation(std::unique_ptr<Operation> op) {
+    void addOperation(std::shared_ptr<Operation> op) {
         op->parent = this;
-        instructions.push_back(std::move(op));
+        instructions.push_back(op);
     }
 
     // Iterate instructions
