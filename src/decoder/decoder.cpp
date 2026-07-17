@@ -1,7 +1,37 @@
 #include "src/decoder/decoder.hpp"
 #include "src/decoder/decoded_instruction.hpp"
 
-#include <array>
+#include <cstdint>
+
+namespace {
+
+int32_t decode_i_imm(uint32_t inst) {
+    return static_cast<int32_t>(inst) >> 20;
+}
+
+int32_t decode_s_imm(uint32_t inst) {
+    return ((static_cast<int32_t>(inst) >> 20) & ~0x1F) | ((inst >> 7) & 0x1F);
+}
+
+int32_t decode_b_imm(uint32_t inst) {
+    return ((static_cast<int32_t>(inst) >> 19) & 0xFFFFF000)
+        | (((inst >> 7) & 0x1) << 11)
+        | (((inst >> 25) & 0x3F) << 5)
+        | (((inst >> 8) & 0xF) << 1);
+}
+
+int32_t decode_u_imm(uint32_t inst) {
+    return static_cast<int32_t>(inst & 0xFFFFF000);
+}
+
+int32_t decode_j_imm(uint32_t inst) {
+    return ((static_cast<int32_t>(inst) >> 11) & 0xFFF00000)
+        | (((inst >> 12) & 0xFF) << 12)
+        | (((inst >> 20) & 0x1) << 11)
+        | (((inst >> 21) & 0x3FF) << 1);
+}
+
+} // namespace
 
 DecodedInstruction decode_raw_inst(uint32_t inst, uint32_t addr) {
     DecodedInstruction d;
@@ -18,26 +48,19 @@ DecodedInstruction decode_raw_inst(uint32_t inst, uint32_t addr) {
 
     switch (d.format) {
         case DecodedInstruction::Format::I:
-            d.imm = static_cast<int32_t>(inst) >> 20;           // sign‑extend
+            d.imm = decode_i_imm(inst);
             break;
         case DecodedInstruction::Format::S:
-            d.imm = ((static_cast<int32_t>(inst) >> 20) & ~0x1F)  // bits [11:5], sign-extended
-                | ((inst >> 7) & 0x1F);  
+            d.imm = decode_s_imm(inst);
             break;
         case DecodedInstruction::Format::B:
-            d.imm = ((static_cast<int32_t>(inst) >> 19) & 0xFFFFF000)  // sign-extend from bit 12
-                | (((inst >> 7)  & 0x1)   << 11)   // imm[11]
-                | (((inst >> 25) & 0x3F)  << 5)    // imm[10:5]
-                | (((inst >> 8)  & 0xF)   << 1);   // imm[4:1]
+            d.imm = decode_b_imm(inst);
             break;
         case DecodedInstruction::Format::U:
-            d.imm = inst & 0xFFFFF000;
+            d.imm = decode_u_imm(inst);
             break;
         case DecodedInstruction::Format::J:
-            d.imm = ((static_cast<int32_t>(inst) >> 11) & 0xFFF00000)  // sign-extend from bit 20
-                | (((inst >> 12) & 0xFF)  << 12)   // imm[19:12]
-                | (((inst >> 20) & 0x1)   << 11)   // imm[11]
-                | (((inst >> 21) & 0x3FF) << 1);   // imm[10:1]
+            d.imm = decode_j_imm(inst);
             break;
         case DecodedInstruction::Format::R:
         default:

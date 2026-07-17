@@ -1,7 +1,6 @@
 #pragma once
 
 #include "src/interpreter/exception.hpp"
-#include "src/interpreter/state.hpp"
 
 #include <cstdint>
 
@@ -12,9 +11,6 @@ public:
 };
 
 class MemoryInterface {
-
-CPUstate* cpu; // pointer to CPU state (for state inspection, exception handling, etc.)
-
 protected:
     TrapSink* trapSink_ = nullptr;
 

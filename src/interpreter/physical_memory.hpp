@@ -1,6 +1,8 @@
 #pragma once
 
 #include "src/interpreter/memory_interface.hpp"
+
+#include <memory>
 #include <vector>
 
 class PhysicalMemory : public MemoryInterface {
@@ -9,7 +11,7 @@ class PhysicalMemory : public MemoryInterface {
     static constexpr uint32_t PAGE_MASK  = PAGE_SIZE - 1;
     static constexpr uint32_t NUM_PAGES  = (1ull << 32) / PAGE_SIZE; // 1M pages
 
-    std::vector<uint8_t*> pages;  // size = NUM_PAGES, initially all nullptr
+    std::vector<std::unique_ptr<uint8_t[]>> pages;  // size = NUM_PAGES, initially all nullptr
 
     uint8_t* getPagePtr(uint32_t addr);
     const uint8_t* getPagePtr(uint32_t addr) const;
@@ -21,10 +23,8 @@ class PhysicalMemory : public MemoryInterface {
     void writeByte(uint32_t addr, uint8_t value);
 
 public:
-    PhysicalMemory() : pages(NUM_PAGES, nullptr) {}
-    ~PhysicalMemory() {
-        for (auto p : pages) delete[] p;
-    }
+    PhysicalMemory() : pages(NUM_PAGES) {}
+    ~PhysicalMemory() = default;
 
     uint8_t  load8(uint32_t addr) override;
     void     store8(uint32_t addr, uint8_t value) override;

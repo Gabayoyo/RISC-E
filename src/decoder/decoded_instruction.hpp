@@ -27,31 +27,31 @@ static consteval std::array<DecodedInstruction::Format, 128> build_format_table(
         t.fill(DecodedInstruction::Format::UNKNOWN);
 
         // I‑type
-        std::get<0b11001>(t) = DecodedInstruction::Format::I; // JALR
-        std::get<0b00000>(t) = DecodedInstruction::Format::I; // LOAD
-        std::get<0b00011>(t) = DecodedInstruction::Format::I; // MISC_MEM
-        std::get<0b00100>(t) = DecodedInstruction::Format::I; // OP_IMM
-        std::get<0b00110>(t) = DecodedInstruction::Format::I; // OP_IMM_32
-        std::get<0b11100>(t) = DecodedInstruction::Format::I; // SYSTEM
+    t[0b11001] = DecodedInstruction::Format::I; // JALR
+    t[0b00000] = DecodedInstruction::Format::I; // LOAD
+    t[0b00011] = DecodedInstruction::Format::I; // MISC_MEM
+    t[0b00100] = DecodedInstruction::Format::I; // OP_IMM
+    t[0b00110] = DecodedInstruction::Format::I; // OP_IMM_32
+    t[0b11100] = DecodedInstruction::Format::I; // SYSTEM
 
         // U‑type
-        std::get<0b01101>(t) = DecodedInstruction::Format::U; // LUI
-        std::get<0b00101>(t) = DecodedInstruction::Format::U; // AUIPC
+    t[0b01101] = DecodedInstruction::Format::U; // LUI
+    t[0b00101] = DecodedInstruction::Format::U; // AUIPC
 
         // J‑type
-        std::get<0b11011>(t) = DecodedInstruction::Format::J; // JAL
+    t[0b11011] = DecodedInstruction::Format::J; // JAL
 
         // B‑type
-        std::get<0b11000>(t) = DecodedInstruction::Format::B; // BRANCH
+    t[0b11000] = DecodedInstruction::Format::B; // BRANCH
 
         // S‑type
-        std::get<0b01000>(t) = DecodedInstruction::Format::S; // STORE
-        std::get<0b01001>(t) = DecodedInstruction::Format::S; // STORE_FP
+    t[0b01000] = DecodedInstruction::Format::S; // STORE
+    t[0b01001] = DecodedInstruction::Format::S; // STORE_FP
 
         // R‑type
-        std::get<0b01100>(t) = DecodedInstruction::Format::R; // OP
-        std::get<0b01110>(t) = DecodedInstruction::Format::R; // OP_32
-        std::get<0b01011>(t) = DecodedInstruction::Format::R; // AMO
+    t[0b01100] = DecodedInstruction::Format::R; // OP
+    t[0b01110] = DecodedInstruction::Format::R; // OP_32
+    t[0b01011] = DecodedInstruction::Format::R; // AMO
 
         return t;
 };

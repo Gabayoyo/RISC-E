@@ -1,6 +1,7 @@
 #include "src/interpreter/physical_memory.hpp"
 
 #include <limits>
+#include <memory>
 
 namespace {
 constexpr uint32_t kByteBits = 8;
@@ -10,14 +11,15 @@ constexpr uint32_t kByteBits = 8;
 // Allocates a zeroed page on first touch.
 uint8_t* PhysicalMemory::getPagePtr(uint32_t addr) {
     uint32_t page_idx = addr >> PAGE_SHIFT;
-    if (pages[page_idx] == nullptr) {
-        pages[page_idx] = new uint8_t[PAGE_SIZE](); // zero-initialised
+    auto& page = pages[page_idx];
+    if (page == nullptr) {
+        page = std::make_unique<uint8_t[]>(PAGE_SIZE); // zero-initialised
     }
-    return pages[page_idx];
+    return page.get();
 }
 
 const uint8_t* PhysicalMemory::getPagePtr(uint32_t addr) const {
-    return pages[addr >> PAGE_SHIFT];
+    return pages[addr >> PAGE_SHIFT].get();
 }
 
 bool PhysicalMemory::checkAlignment(uint32_t addr, uint32_t size, TrapCause cause) {
@@ -43,7 +45,7 @@ bool PhysicalMemory::raiseFault(TrapCause cause, uint32_t addr) {
 }
 
 bool PhysicalMemory::readByte(uint32_t addr, uint8_t& value) {
-    const uint8_t* page = static_cast<const PhysicalMemory*>(this)->getPagePtr(addr);
+    const uint8_t* page = getPagePtr(addr);
     if (!page) {
         return raiseFault(TrapCause::LOAD_FAULT, addr);
     }
