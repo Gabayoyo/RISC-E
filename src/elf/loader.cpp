@@ -355,7 +355,7 @@ LoadedElf load_elf(const std::string& path) {
     }
  
     LoadedElf result;
-    result.memory       = std::move(memory);
+    result.program      = std::move(memory);
     result.entry        = ehdr->e_entry;
     result.base_vaddr   = min_vaddr;
     result.end_vaddr    = max_vaddr;

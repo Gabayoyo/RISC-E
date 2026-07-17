@@ -1,11 +1,12 @@
 #pragma once
 
-#include "src/ir/operation.hpp"
+#include "src/decoder/decoded_instruction.hpp"
 
 #include <ostream>
 #include <string>
+#include <vector>
 
-class IRFunction; // forward declaration
+enum class BranchType { None, Direct, Indirect, Call, Return };
 
 class BasicBlock {
 public:
@@ -13,50 +14,15 @@ public:
     uint32_t                 startAddr;
     uint32_t                 endAddr;     // addr of last instruction
 
-    std::vector<std::shared_ptr<Operation>> instructions;
+    std::vector<DecodedInstruction> instructions;
 
-    IRFunction* parent = nullptr; // back pointer to containing function
+    uint32_t   fallthrough_pc; // 0 if unconditional jump
 
-    // CFG edges (filled in by IRBuilder after all blocks are created)
-    std::vector<BasicBlock*> successors;
-    std::vector<BasicBlock*> predecessors;
+    uint32_t   branch_target_pc; // 0 if indirect or unknown
+    BranchType exit_type;
 
-    Operation* terminator() {
-        if (!instructions.empty() && instructions.back()->traits & Traits::Terminator)
-            return instructions.back().get();
-        return nullptr; // fall-through block
-    }
+    uint64_t exec_count;         // profiling counter
 
-    void addOperation(std::shared_ptr<Operation> op) {
-        op->parent = this;
-        instructions.push_back(op);
-    }
-
-    // Iterate instructions
-    auto begin() { return instructions.begin(); }
-    auto end()   { return instructions.end();   }
-
-    void print(std::ostream& os, int indent = 0) const {
-        std::string pad(indent, ' ');
-
-        os << pad << label;
-
-        // Predecessor / successor summary on the same header line
-        os << "  preds=[";
-        for (size_t i = 0; i < predecessors.size(); ++i) {
-            if (i) os << ", ";
-            os << predecessors[i]->label;
-        }
-        os << "]  succs=[";
-        for (size_t i = 0; i < successors.size(); ++i) {
-            if (i) os << ", ";
-            os << successors[i]->label;
-        }
-        os << "] {\n";
-
-        for (const auto& instr : instructions)
-            instr->print(os, indent + 4);
-
-        os << pad << "}\n";
-    }
+    void*      native_entry;     // pointer to compiled code
+    bool       is_compiled;
 };

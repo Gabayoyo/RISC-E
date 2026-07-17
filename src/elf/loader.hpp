@@ -21,10 +21,10 @@ struct LoadedSegment {
 };
 
 struct LoadedElf {
-    std::vector<uint8_t> memory;   // loaded segments, base = base_vaddr
+    std::vector<uint8_t> program;   // loaded segments, base = base_vaddr
     uint64_t entry         = 0;
     uint64_t base_vaddr    = 0;    // lowest virtual address loaded
-    uint64_t end_vaddr     = 0;    // base_vaddr + memory.size()
+    uint64_t end_vaddr     = 0;    // base_vaddr + program.size()
     std::vector<ElfSymbol> symbols; // all symbols from .symtab
     std::vector<std::pair<uint32_t, uint32_t>> instructions;
     std::vector<LoadedSegment> segments; // all PT_LOAD segments

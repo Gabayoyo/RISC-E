@@ -1,6 +1,5 @@
 #include "elf/loader.hpp"
 #include "interpreter/interpreter.hpp"
-#include "builder/ir_builder.hpp"
 
 #include <iostream>
 #include <iomanip>
@@ -14,38 +13,26 @@ int main() {
         // Load the ELF
         LoadedElf elf = load_elf("../files/output/sample.elf");
 
-        // Print what we got
-        std::cout << "Entry point : 0x" << std::hex << elf.entry << '\n';
-        std::cout << "Base vaddr  : 0x" << elf.base_vaddr << '\n';
-        std::cout << "End vaddr   : 0x" << elf.end_vaddr << '\n';
-        std::cout << "Memory size : " << std::dec << elf.memory.size() << " bytes\n\n";
+        // get all symbol addresses
+        // std::set<uint32_t> sym_addrs;
+        // for (const auto& sym : elf.symbols)
+        //    sym_addrs.insert(sym.address);
 
-        std::set<uint32_t> sym_addrs;
-        for (const auto& sym : elf.symbols)
-            sym_addrs.insert(sym.address);
-
-        std::vector<DecodedInstruction> insts;
-        for (const auto& [addr, raw] : elf.instructions) {
-            DecodedInstruction d = decode_raw_inst(raw, addr);
-            insts.push_back(d);
-        }
-
-        IRBuilder builder;
-        IRModule module;
-        builder.buildModule(module, insts, sym_addrs);
-
-        Interpreter interpreter(std::move(elf));
-        interpreter.load(module);
-
-        // now we interpret
-
-        // --- Your interpreter loop would start here ---
-        // uint64_t pc = elf.entry;
-        // while (running) {
-        //     uint8_t* inst_ptr = elf.memory.data() + (pc - elf.base_vaddr);
-        //     // decode instruction at inst_ptr...
-        //     pc += 4;  // RISC-V instructions are 4 bytes
+        // Decode instructions
+        // std::vector<DecodedInstruction> insts;
+        // for (const auto& [addr, raw] : elf.instructions) {
+        //     DecodedInstruction d = decode_raw_inst(raw, addr);
+        //     insts.push_back(d);
         // }
+
+        // construct and load interpreter with ELF file
+        Interpreter interpreter(std::move(elf));
+
+        interpreter.run();
+
+        // Get flat list of decoded instructions
+        // Interpret it
+        // THEN add JIT and IR
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
