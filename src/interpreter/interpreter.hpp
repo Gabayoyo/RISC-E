@@ -6,6 +6,7 @@
 #include "src/interpreter/state.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 #include <stdexcept>
 #include <map>
@@ -34,8 +35,9 @@ public:
     void step();
 
     // Run until an ECALL (system call) is encountered or an error.
-    void run();
-
+    // Returns the exit code if the program halted via ECALL, or an empty optional
+    // if it halted via EBREAK or other reason.
+    std::optional<uint32_t> run();
     // Reset PC to entry point and zero all registers.
     void reset();
 
@@ -56,6 +58,5 @@ private:
 
     // Helpers
     uint32_t fetch_instruction(uint32_t vaddr) const;
-    void handle_ecall();
-    void load_elf_segments(PhysicalMemory& mem, const LoadedElf& elf);
+    void handle_trap();
 };

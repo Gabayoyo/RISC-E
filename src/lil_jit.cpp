@@ -28,7 +28,13 @@ int main() {
         // construct and load interpreter with ELF file
         Interpreter interpreter(std::move(elf));
 
-        interpreter.run();
+        std::optional<uint32_t> exit_code = interpreter.run();
+
+        if (exit_code.has_value()) {
+            std::cout << "Program finished with exit code: " << *exit_code << '\n';
+        } else {
+            std::cout << "Program halted (EBREAK or trap).\n";
+        }
 
         // Get flat list of decoded instructions
         // Interpret it

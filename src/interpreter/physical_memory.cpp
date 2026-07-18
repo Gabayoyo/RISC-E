@@ -24,7 +24,8 @@ const uint8_t* PhysicalMemory::getPagePtr(uint32_t addr) const {
 
 bool PhysicalMemory::checkAlignment(uint32_t addr, uint32_t size, TrapCause cause) {
     if (addr & (size - 1)) {
-        return raiseFault(cause, addr);
+        raiseFault(cause, addr);
+        return false;
     }
     return true;
 }
@@ -32,31 +33,37 @@ bool PhysicalMemory::checkAlignment(uint32_t addr, uint32_t size, TrapCause caus
 bool PhysicalMemory::checkRange(uint32_t addr, uint32_t size, TrapCause cause) {
     const uint64_t end = static_cast<uint64_t>(addr) + static_cast<uint64_t>(size) - 1u;
     if (end > std::numeric_limits<uint32_t>::max()) {
-        return raiseFault(cause, addr);
+        raiseFault(cause, addr);
+        return false;
     }
     return true;
 }
 
-bool PhysicalMemory::raiseFault(TrapCause cause, uint32_t addr) {
+void PhysicalMemory::raiseFault(TrapCause cause, uint32_t addr) {
     if (trapSink_) {
         trapSink_->raiseTrap(cause, addr);
     }
-    return false;
 }
 
 bool PhysicalMemory::readByte(uint32_t addr, uint8_t& value) {
     const uint8_t* page = getPagePtr(addr);
     if (!page) {
-        return raiseFault(TrapCause::LOAD_FAULT, addr);
+        raiseFault(TrapCause::LOAD_FAULT, addr);
+        return false;
     }
 
     value = page[addr & PAGE_MASK];
     return true;
 }
 
-void PhysicalMemory::writeByte(uint32_t addr, uint8_t value) {
+bool PhysicalMemory::writeByte(uint32_t addr, uint8_t value) {
     uint8_t* page = getPagePtr(addr);
+    if (!page) {
+        raiseFault(TrapCause::STORE_FAULT, addr);
+        return false;
+    }
     page[addr & PAGE_MASK] = value;
+    return true;
 }
 
 uint8_t PhysicalMemory::load8(uint32_t addr) {
@@ -68,6 +75,9 @@ uint8_t PhysicalMemory::load8(uint32_t addr) {
 }
 
 void PhysicalMemory::store8(uint32_t addr, uint8_t value) {
+    if (!checkRange(addr, 1, TrapCause::STORE_FAULT)) {
+        return;
+    }
     writeByte(addr, value);
 }
 

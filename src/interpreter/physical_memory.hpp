@@ -18,9 +18,9 @@ class PhysicalMemory : public MemoryInterface {
 
     bool checkAlignment(uint32_t addr, uint32_t size, TrapCause cause);
     bool checkRange(uint32_t addr, uint32_t size, TrapCause cause);
-    bool raiseFault(TrapCause cause, uint32_t addr);
+    void raiseFault(TrapCause cause, uint32_t addr);
     bool readByte(uint32_t addr, uint8_t& value);
-    void writeByte(uint32_t addr, uint8_t value);
+    bool writeByte(uint32_t addr, uint8_t value);
 
 public:
     PhysicalMemory() : pages(NUM_PAGES) {}
