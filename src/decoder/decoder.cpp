@@ -2,6 +2,8 @@
 #include "src/decoder/decoded_instruction.hpp"
 
 #include <cstdint>
+#include <iostream>
+#include <bitset>
 
 namespace {
 
@@ -66,6 +68,5 @@ DecodedInstruction decode_raw_inst(uint32_t inst, uint32_t addr) {
         default:
             d.imm = 0;
             break;
-    }
     return d;
 }
