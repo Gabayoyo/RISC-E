@@ -1,4 +1,4 @@
-#include "risc-e/decoder/decoder.hpp"
+#include "risc-e/core/decoder/decoder.hpp"
 
 namespace {
 

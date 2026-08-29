@@ -1,7 +1,7 @@
-#include "risc-e/interpreter/interpreter.hpp"
+#include "risc-e/core/interpreter/interpreter.hpp"
 
-#include "risc-e/cpu/trap.hpp"
-#include "risc-e/decoder/decoder.hpp"
+#include "risc-e/core/cpu/trap.hpp"
+#include "risc-e/core/decoder/decoder.hpp"
 
 #include <algorithm>
 #include <cstdint>

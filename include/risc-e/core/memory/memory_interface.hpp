@@ -1,6 +1,6 @@
 #pragma once
 
-#include "risc-e/cpu/trap.hpp"
+#include "risc-e/core/cpu/trap.hpp"
 
 #include <cstdint>
 

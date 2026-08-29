@@ -18,14 +18,23 @@ IR lifting, and JIT code generation.
 
 ```
 include/risc-e/   public headers
-  cpu/                CPU state, halt reasons, trap interface
-  decoder/            instruction decoding
-  elf/                ELF loading
-  interpreter/        the interpreter
-  memory/             memory interface and physical memory
-src/                  implementation (one .cpp per public header)
+  core/               the execution engine
+    cpu/                CPU state, halt reasons, trap interface
+    decoder/            instruction decoding
+    elf/                ELF loading
+    interpreter/        the interpreter
+    memory/             memory interface and physical memory
+    host_interface.hpp  hook contract for frontends
+  risc-e.h            facade header for frontends
+src/
+  core/               implementation (one .cpp per public header)
+  main.cpp            CLI frontend
 tests/                unit tests and RISC-V test programs
 ```
+
+The engine lives under `core/`; frontends (CLI, playground, debugger) stay at
+the top level and interact with it only through the facade and `HostInterface`
+(which they subclass to override syscalls and tracing).
 
 ## Build
 

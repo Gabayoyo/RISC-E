@@ -1,5 +1,5 @@
-#include "risc-e/elf/loader.hpp"
-#include "risc-e/interpreter/interpreter.hpp"
+#include "risc-e/core/elf/loader.hpp"
+#include "risc-e/core/interpreter/interpreter.hpp"
 
 #include <exception>
 #include <iostream>

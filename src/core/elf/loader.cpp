@@ -1,4 +1,4 @@
-#include "risc-e/elf/loader.hpp"
+#include "risc-e/core/elf/loader.hpp"
 
 #include <algorithm>
 #include <cstdint>
