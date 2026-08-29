@@ -41,6 +41,7 @@ struct Elf32_Phdr {
 static constexpr uint16_t ET_EXEC  = 2;
 static constexpr uint16_t EM_RISCV = 243;
 static constexpr uint32_t PT_LOAD  = 1;
+static constexpr uint32_t EV_CURRENT = 1;
 
 static std::vector<uint8_t> read_file(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
@@ -65,12 +66,15 @@ static std::vector<uint8_t> read_file(const std::string& path) {
 static std::vector<LoadedSegment> extract_segments(const std::vector<uint8_t>& file_data, const Elf32_Ehdr* ehdr) {
     std::vector<LoadedSegment> segments;
     for (uint16_t i = 0; i < ehdr->e_phnum; ++i) {
-        const auto* ph = reinterpret_cast<const Elf32_Phdr*>(
-            file_data.data() + ehdr->e_phoff + i * ehdr->e_phentsize);
+        const uint64_t phoff = static_cast<uint64_t>(ehdr->e_phoff)
+                             + static_cast<uint64_t>(i) * ehdr->e_phentsize;
+        const auto* ph = reinterpret_cast<const Elf32_Phdr*>(file_data.data() + phoff);
 
         if (ph->p_type != PT_LOAD) continue;
         if (ph->p_memsz < ph->p_filesz) throw std::runtime_error("p_memsz < p_filesz");
-        if (ph->p_offset + ph->p_filesz > file_data.size()) throw std::runtime_error("segment extends past EOF");
+        if (static_cast<uint64_t>(ph->p_offset) + ph->p_filesz > file_data.size()) {
+            throw std::runtime_error("segment extends past EOF");
+        }
 
         LoadedSegment seg;
         seg.vaddr = ph->p_vaddr;
@@ -96,30 +100,35 @@ LoadedElf load_elf(const std::string& path) {
     }
     if (ehdr->e_ident[4] != 1) throw std::runtime_error("not a 32-bit ELF");
     if (ehdr->e_ident[5] != 1) throw std::runtime_error("not little-endian");
+    if (ehdr->e_ident[6] != 1) throw std::runtime_error("bad ELF identification version");
+    if (ehdr->e_version != EV_CURRENT) throw std::runtime_error("bad ELF version field");
     if (ehdr->e_type != ET_EXEC) throw std::runtime_error("not an ET_EXEC executable");
     if (ehdr->e_machine != EM_RISCV) throw std::runtime_error("not RISC-V");
+    if (ehdr->e_phentsize != sizeof(Elf32_Phdr)) throw std::runtime_error("unexpected program header size");
 
-    const uint32_t phoff  = ehdr->e_phoff;
-    const uint16_t phnum  = ehdr->e_phnum;
-    const uint16_t phsize = ehdr->e_phentsize;
-    if (phoff + static_cast<uint32_t>(phnum) * phsize > file_data.size()) {
+    const uint64_t phoff  = ehdr->e_phoff;
+    const uint64_t phnum  = ehdr->e_phnum;
+    const uint64_t phsize = ehdr->e_phentsize;
+    if (phoff + phnum * phsize > file_data.size()) {
         throw std::runtime_error("program headers beyond file size");
     }
 
-    uint32_t max_vaddr = 0;
+    uint64_t max_vaddr = 0;
     bool found = false;
     for (uint16_t i = 0; i < phnum; ++i) {
         const auto* ph = reinterpret_cast<const Elf32_Phdr*>(
-            file_data.data() + phoff + i * phsize);
+            file_data.data() + phoff + static_cast<uint64_t>(i) * phsize);
         if (ph->p_type != PT_LOAD) continue;
         found = true;
-        max_vaddr = std::max(max_vaddr, ph->p_vaddr + ph->p_memsz);
+        const uint64_t seg_end = static_cast<uint64_t>(ph->p_vaddr) + ph->p_memsz;
+        max_vaddr = std::max(max_vaddr, seg_end);
     }
     if (!found) throw std::runtime_error("no loadable segments");
+    if (max_vaddr > 0xFFFFFFFFull) throw std::runtime_error("segment extends past 32-bit address space");
 
     LoadedElf result;
     result.entry      = ehdr->e_entry;
-    result.end_vaddr  = max_vaddr;
+    result.end_vaddr  = static_cast<uint32_t>(max_vaddr);
     result.segments   = extract_segments(file_data, ehdr);
     return result;
 }

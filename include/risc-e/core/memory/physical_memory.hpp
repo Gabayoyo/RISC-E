@@ -19,6 +19,7 @@ class PhysicalMemory : public MemoryInterface {
 
     bool checkAlignment(uint32_t addr, uint32_t size, TrapCause cause);
     bool checkRange(uint32_t addr, uint32_t size, TrapCause cause);
+    bool checkMapped(uint32_t addr, uint32_t size, TrapCause cause);
     void raiseFault(TrapCause cause, uint32_t addr);
     bool readByte(uint32_t addr, uint8_t& value);
     bool writeByte(uint32_t addr, uint8_t value);
@@ -26,6 +27,11 @@ class PhysicalMemory : public MemoryInterface {
 public:
     PhysicalMemory();
     ~PhysicalMemory() = default;
+
+    PhysicalMemory(const PhysicalMemory&) = delete;
+    PhysicalMemory& operator=(const PhysicalMemory&) = delete;
+    PhysicalMemory(PhysicalMemory&& other) noexcept;
+    PhysicalMemory& operator=(PhysicalMemory&& other) noexcept;
 
     // Explicitly allocate zeroed pages for [vaddr, vaddr + size).
     void map_region(uint32_t vaddr, uint32_t size);
@@ -36,4 +42,5 @@ public:
     void     store16(uint32_t addr, uint16_t value) override;
     uint32_t load32(uint32_t addr) override;
     void     store32(uint32_t addr, uint32_t value) override;
+    uint32_t fetch32(uint32_t addr) override;
 };

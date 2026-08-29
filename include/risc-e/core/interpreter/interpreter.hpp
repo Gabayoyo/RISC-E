@@ -1,5 +1,6 @@
 #pragma once
 
+#include "risc-e/core/cpu/branch_stats.hpp"
 #include "risc-e/core/cpu/state.hpp"
 #include "risc-e/core/cpu/trap.hpp"
 #include "risc-e/core/decoder/decoded_instruction.hpp"
@@ -13,11 +14,11 @@ class Interpreter : public TrapSink {
 public:
     static constexpr int REG_COUNT = 32;
 
-    explicit Interpreter(LoadedElf elf);
+    explicit Interpreter(LoadedElf elf, BranchPredictor* predictor = nullptr);
 
     Interpreter(const Interpreter&) = delete;
     Interpreter& operator=(const Interpreter&) = delete;
-    Interpreter(Interpreter&&) = default;
+    Interpreter(Interpreter&& other) noexcept;
     Interpreter& operator=(Interpreter&&) = delete;
 
     void step();
@@ -26,6 +27,14 @@ public:
 
     uint32_t get_pc() const { return state_.pc; }
     uint32_t get_register(int idx) const;
+    HaltReason halt_reason() const { return state_.halt_reason; }
+    uint64_t instruction_count() const { return inst_count_; }
+
+    const BranchStats& branch_stats() const { return branch_stats_; }
+    BranchStats& branch_stats() { return branch_stats_; }
+    void set_predictor(BranchPredictor* predictor) { predictor_ = predictor; }
+    void set_branch_trace(bool enabled) { branch_stats_.trace_enabled = enabled; }
+    void reset_branch_stats() { branch_stats_.reset(); }
 
     void raiseTrap(TrapCause cause, uint32_t value = 0) override;
 
@@ -35,6 +44,10 @@ public:
 private:
     uint32_t entry_;
     uint32_t heap_break_;
+    uint64_t inst_count_ = 0;
+
+    BranchPredictor* predictor_ = nullptr;
+    BranchStats branch_stats_;
 
     CPUstate state_;
     PhysicalMemory mem_;

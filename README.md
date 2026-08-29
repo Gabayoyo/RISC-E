@@ -52,6 +52,13 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
+Pass `--branch-stats` to print per-type branch taken counts and the simulated
+predictor's hit/miss rate:
+
+```sh
+cd out && ./build/preset/risc-e --branch-stats path/to/program.elf
+```
+
 ## Test
 
 If `riscv64-unknown-elf-gcc` is on the PATH, the build also assembles the
@@ -60,6 +67,9 @@ programs under `tests/programs/` and registers integration tests for them.
 ```sh
 cd out && ctest --test-dir build/preset --output-on-failure
 ```
+
+Tests cover ELF loading, stack/heap memory, unmapped read/write faults,
+misaligned access, and `exit` codes.
 
 Tests cover ELF loading, stack/heap memory, unmapped read/write faults,
 misaligned access, and `exit` codes.

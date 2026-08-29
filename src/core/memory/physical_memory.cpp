@@ -54,6 +54,16 @@ bool PhysicalMemory::checkRange(uint32_t addr, uint32_t size, TrapCause cause) {
     return true;
 }
 
+bool PhysicalMemory::checkMapped(uint32_t addr, uint32_t size, TrapCause cause) {
+    for (uint32_t i = 0; i < size; ++i) {
+        if (getPagePtr(addr + i) == nullptr) {
+            raiseFault(cause, addr + i);
+            return false;
+        }
+    }
+    return true;
+}
+
 void PhysicalMemory::raiseFault(TrapCause cause, uint32_t addr) {
     if (trapSink_ != nullptr) {
         trapSink_->raiseTrap(cause, addr);
@@ -103,6 +113,7 @@ uint16_t PhysicalMemory::load16(uint32_t addr) {
 void PhysicalMemory::store16(uint32_t addr, uint16_t value) {
     if (!checkAlignment(addr, 2, TrapCause::STORE_MISALIGNED)) return;
     if (!checkRange(addr, 2, TrapCause::STORE_FAULT)) return;
+    if (!checkMapped(addr, 2, TrapCause::STORE_FAULT)) return;
 
     writeByte(addr, static_cast<uint8_t>(value & 0xFF));
     writeByte(addr + 1, static_cast<uint8_t>((value >> kByteBits) & 0xFF));
@@ -127,9 +138,40 @@ uint32_t PhysicalMemory::load32(uint32_t addr) {
 void PhysicalMemory::store32(uint32_t addr, uint32_t value) {
     if (!checkAlignment(addr, 4, TrapCause::STORE_MISALIGNED)) return;
     if (!checkRange(addr, 4, TrapCause::STORE_FAULT)) return;
+    if (!checkMapped(addr, 4, TrapCause::STORE_FAULT)) return;
 
     writeByte(addr,     static_cast<uint8_t>(value & 0xFF));
     writeByte(addr + 1, static_cast<uint8_t>((value >> 8) & 0xFF));
     writeByte(addr + 2, static_cast<uint8_t>((value >> 16) & 0xFF));
     writeByte(addr + 3, static_cast<uint8_t>((value >> 24) & 0xFF));
+}
+
+uint32_t PhysicalMemory::fetch32(uint32_t addr) {
+    if (!checkAlignment(addr, 4, TrapCause::INSTRUCTION_ADDRESS_MISALIGNED)) return 0;
+    if (!checkRange(addr, 4, TrapCause::INSTRUCTION_ACCESS_FAULT)) return 0;
+
+    uint32_t result = 0;
+    for (uint32_t i = 0; i < 4; ++i) {
+        const uint8_t* page = getPagePtr(addr + i);
+        if (page == nullptr) {
+            raiseFault(TrapCause::INSTRUCTION_ACCESS_FAULT, addr + i);
+            return 0;
+        }
+        result |= static_cast<uint32_t>(page[(addr + i) & PAGE_MASK]) << (kByteBits * i);
+    }
+    return result;
+}
+
+PhysicalMemory::PhysicalMemory(PhysicalMemory&& other) noexcept
+    : pages(std::move(other.pages))
+{
+    trapSink_ = other.trapSink_;
+}
+
+PhysicalMemory& PhysicalMemory::operator=(PhysicalMemory&& other) noexcept {
+    if (this != &other) {
+        pages     = std::move(other.pages);
+        trapSink_ = other.trapSink_;
+    }
+    return *this;
 }

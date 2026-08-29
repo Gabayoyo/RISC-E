@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <utility>
 
 namespace {
 
@@ -100,8 +101,8 @@ bool is_valid_shift(uint8_t funct7, uint8_t funct3) {
             return false;
     }
 }
-
-void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+                    BranchPredictor* predictor, BranchStats& stats, uint64_t inst_count) {
     const uint32_t rs1 = state.x[d.rs1];
     const uint32_t rs2 = state.x[d.rs2];
     bool taken = false;
@@ -118,7 +119,32 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
             return;
     }
 
-    state.pc = taken ? state.pc + d.imm : state.pc + 4;
+    const uint32_t target = taken ? state.pc + d.imm : state.pc + 4;
+
+    ++stats.total;
+    if (taken) {
+        ++stats.taken;
+    } else {
+        ++stats.not_taken;
+    }
+    if (d.funct3 < 8) {
+        ++stats.type_total[d.funct3];
+        if (taken) ++stats.type_taken[d.funct3];
+    }
+    if (predictor != nullptr) {
+        const bool predicted = predictor->predict(d.addr);
+        predictor->update(d.addr, taken);
+        if (predicted == taken) {
+            ++stats.hits;
+        } else {
+            ++stats.misses;
+        }
+    }
+    if (stats.trace_enabled && stats.trace.size() < BranchStats::kMaxTrace) {
+        stats.trace.push_back(BranchRecord{inst_count, d.addr, d.raw, d.funct3, taken, target});
+    }
+
+    state.pc = target;
 }
 
 void execute_op_imm(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
@@ -219,33 +245,41 @@ void execute_op(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
 
 void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
     const uint32_t address = state.x[d.rs1] + static_cast<uint32_t>(d.imm);
+    uint32_t result = 0;
 
     switch (d.funct3) {
         case F3_LB: {
             const int8_t val = static_cast<int8_t>(state.mem->load8(address));
-            write_register(state, d.rd, static_cast<uint32_t>(static_cast<int32_t>(val)));
+
+            result = static_cast<uint32_t>(static_cast<int32_t>(val));
             break;
         }
         case F3_LH: {
             const int16_t val = static_cast<int16_t>(state.mem->load16(address));
-            write_register(state, d.rd, static_cast<uint32_t>(static_cast<int32_t>(val)));
+
+            result = static_cast<uint32_t>(static_cast<int32_t>(val));
             break;
         }
         case F3_LW:
-            write_register(state, d.rd, state.mem->load32(address));
+
+            result = state.mem->load32(address);
             break;
         case F3_LBU:
-            write_register(state, d.rd, state.mem->load8(address));
+
+            result = state.mem->load8(address);
             break;
         case F3_LHU:
-            write_register(state, d.rd, state.mem->load16(address));
+
+            result = state.mem->load16(address);
             break;
         default:
             sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             return;
     }
 
-    if (!state.running) return;  // a memory fault halted execution
+
+    if (!state.running) return;  // a memory fault halted execution; rd must not be written
+    write_register(state, d.rd, result);
     state.pc += 4;
 }
 
@@ -264,7 +298,6 @@ void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d)
             break;
         default:
             sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
-            return;
     }
 
     if (!state.running) return;  // a memory fault halted execution
@@ -272,13 +305,16 @@ void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d)
 }
 
 void execute_system(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
-    if (d.imm == 0) {
+    // ECALL/EBREAK require funct3 == 0, rd == 0 and rs1 == 0.
+    const bool valid_env = d.funct3 == 0 && d.rd == 0 && d.rs1 == 0;
+
+    if (d.imm == 0 && valid_env) {
         // ECALL: trap now; handle_trap advances PC past the instruction
         sink.raiseTrap(TrapCause::ENVIRONMENT_CALL_FROM_MMODE, 0);
         return;
     }
 
-    if (d.imm == 1) {  // EBREAK
+    if (d.imm == 1 && valid_env) {  // EBREAK
         state.halt_reason = HaltReason::EBREAK;
         state.running     = false;
     } else {
@@ -302,9 +338,10 @@ void load_elf_segments(PhysicalMemory& memory, const LoadedElf& elf) {
 
 } // namespace
 
-Interpreter::Interpreter(LoadedElf elf)
+Interpreter::Interpreter(LoadedElf elf, BranchPredictor* predictor)
     : entry_(static_cast<uint32_t>(elf.entry)),
-      heap_break_(align_up(static_cast<uint32_t>(elf.end_vaddr), 16u))
+      heap_break_(align_up(static_cast<uint32_t>(elf.end_vaddr), 16u)),
+      predictor_(predictor)
 {
     mem_.setTrapSink(this);
     state_.mem = &mem_;
@@ -313,25 +350,41 @@ Interpreter::Interpreter(LoadedElf elf)
     load_elf_segments(mem_, elf);
 
     reset();
-    state_.x[2] = kInitialStackPointer;
+}
+
+Interpreter::Interpreter(Interpreter&& other) noexcept
+    : entry_(other.entry_),
+      heap_break_(other.heap_break_),
+      inst_count_(other.inst_count_),
+      predictor_(other.predictor_),
+      branch_stats_(std::move(other.branch_stats_)),
+      state_(other.state_),
+      mem_(std::move(other.mem_))
+{
+    state_.mem = &mem_;
+    mem_.setTrapSink(this);
 }
 
 void Interpreter::reset() {
     std::fill_n(state_.x, REG_COUNT, 0u);
+    state_.x[2] = kInitialStackPointer;
     state_.pc          = entry_;
     state_.mepc        = 0;
     state_.mcause      = 0;
     state_.mtval       = 0;
     state_.running     = true;
     state_.halt_reason = HaltReason::NONE;
+    inst_count_        = 0;
 }
 
 uint32_t Interpreter::fetch_instruction(uint32_t vaddr) const {
-    return state_.mem->load32(vaddr);
+    return state_.mem->fetch32(vaddr);
 }
 
 void Interpreter::step() {
     if (!state_.running) return;
+
+    ++inst_count_;
 
     const uint32_t inst = fetch_instruction(state_.pc);
     if (!state_.running) return;  // fetch may have trapped
@@ -358,6 +411,10 @@ void Interpreter::execute(const DecodedInstruction& d) {
             break;
 
         case OPCODE_JALR: {
+            if (d.funct3 != 0) {
+                raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+                break;
+            }
             const uint32_t target = (state_.x[d.rs1] + static_cast<uint32_t>(d.imm)) & ~1u;
             write_register(state_, d.rd, state_.pc + 4);
             state_.pc = target;
@@ -365,7 +422,8 @@ void Interpreter::execute(const DecodedInstruction& d) {
         }
 
         case OPCODE_BRANCH:
-            execute_branch(state_, *this, d);
+
+            execute_branch(state_, *this, d, predictor_, branch_stats_, inst_count_);
             break;
 
         case OPCODE_LOAD:
@@ -383,12 +441,15 @@ void Interpreter::execute(const DecodedInstruction& d) {
         case OPCODE_OP:
             execute_op(state_, *this, d);
             break;
-
         case OPCODE_SYSTEM:
             execute_system(state_, *this, d);
             break;
 
-        case OPCODE_MISC_MEM:  // FENCE
+        case OPCODE_MISC_MEM:  // FENCE (funct3=0) / FENCE.I (funct3=1)
+            if (d.funct3 > 1) {
+                raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+                break;
+            }
             state_.pc += 4;
             break;
 
@@ -416,7 +477,9 @@ void Interpreter::handle_trap() {
 
                     if (fd == 1 || fd == 2) {
                         for (uint32_t i = 0; i < count; ++i) {
-                            putchar(static_cast<char>(state_.mem->load8(buf + i)));
+                            const uint8_t byte = state_.mem->load8(buf + i);
+                            if (!state_.running) return;  // fault inside the buffer halted execution
+                            putchar(static_cast<char>(byte));
                         }
                         fflush(stdout);
                         state_.x[10] = count;
