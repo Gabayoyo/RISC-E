@@ -1,7 +1,8 @@
 #pragma once
 
-#include "src/interpreter/memory_interface.hpp"
+#include "risc-e/memory/memory_interface.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -23,8 +24,11 @@ class PhysicalMemory : public MemoryInterface {
     bool writeByte(uint32_t addr, uint8_t value);
 
 public:
-    PhysicalMemory() : pages(NUM_PAGES) {}
+    PhysicalMemory();
     ~PhysicalMemory() = default;
+
+    // Explicitly allocate zeroed pages for [vaddr, vaddr + size).
+    void map_region(uint32_t vaddr, uint32_t size);
 
     uint8_t  load8(uint32_t addr) override;
     void     store8(uint32_t addr, uint8_t value) override;

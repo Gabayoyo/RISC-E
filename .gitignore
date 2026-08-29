@@ -70,7 +70,6 @@ Testing/
 
 # repo specific
 .DS_Store
-*.S
 *.elf
 out/
 .vscode

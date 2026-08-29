@@ -1,14 +1,8 @@
 #pragma once
 
-#include "src/interpreter/exception.hpp"
+#include "risc-e/cpu/trap.hpp"
 
 #include <cstdint>
-
-class TrapSink {
-public:
-    virtual void raiseTrap(TrapCause cause, uint32_t value = 0) = 0;
-    virtual ~TrapSink() = default;
-};
 
 class MemoryInterface {
 protected:
