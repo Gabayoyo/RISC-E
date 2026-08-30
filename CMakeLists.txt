@@ -100,6 +100,40 @@ if(RISCV_GCC)
     set_tests_properties(branchy_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "conditional branches: [1-9][0-9]*")
 
+    # C programs with varying branch patterns
+    add_test(NAME branch_loops_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_loops.c)
+    set_tests_properties(branch_loops_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 5050")
+
+    add_test(NAME branch_data_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_data.c)
+    set_tests_properties(branch_data_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 10")
+
+    add_test(NAME branch_data_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_data.c)
+    set_tests_properties(branch_data_c_stats
+                         PROPERTIES PASS_REGULAR_EXPRESSION "conditional branches: [1-9][0-9]*")
+
+    add_test(NAME branch_nested_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_nested.c)
+    set_tests_properties(branch_nested_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 36")
+
+    add_test(NAME branch_switch_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_switch.c)
+    set_tests_properties(branch_switch_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 144")
+
+    add_test(NAME branch_calls_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_calls.c)
+    set_tests_properties(branch_calls_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 55")
+
+    add_test(NAME branch_calls_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_calls.c)
+    set_tests_properties(branch_calls_c_stats
+                         PROPERTIES PASS_REGULAR_EXPRESSION "control transfers: [1-9][0-9]*")
+
+    # General-purpose C programs, reusable for other emulator testing
+    add_test(NAME general_memory_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(general_memory_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 108")
+
+    add_test(NAME general_arithmetic_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_arithmetic.c)
+    set_tests_properties(general_arithmetic_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 9")
+
+    add_test(NAME general_heap_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_heap.c)
+    set_tests_properties(general_heap_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 224")
+
     add_test(NAME branch_stats_gshare
              COMMAND risc-e --predictor gshare ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_gshare

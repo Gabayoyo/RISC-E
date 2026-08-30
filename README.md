@@ -198,7 +198,11 @@ If a RISC-V GCC cross-compiler is on the PATH (`riscv64-unknown-elf-gcc` or
 programs under `tests/programs/src/` into `tests/programs/elf/` and registers
 integration tests for them. C sources under `tests/programs/src/` are tested
 through the tool itself: `risc-e` compiles them on the fly and the test
-checks the printed output, exit code and branch stats.
+checks the printed output, exit code and branch stats. The C programs cover
+different branch patterns (predictable loops, data-dependent branches,
+nested conditionals, switches, recursion) plus general-purpose programs
+(data/bss/stack memory, arithmetic, heap via `brk`) that are also handy for
+exercising other emulator features.
 
 ```sh
 cd out && ctest --test-dir build/preset --output-on-failure
