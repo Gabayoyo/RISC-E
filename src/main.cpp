@@ -1,5 +1,6 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
@@ -7,8 +8,10 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <unistd.h>  // access(), getpid()
 
@@ -113,18 +116,39 @@ void print_branch_stats(const BranchStats& stats, const BranchPredictor* predict
 
 int main(int argc, char** argv) {
     std::string elf_path = "../files/output/sample.elf";
-    bool show_branch_stats = false;
+    std::string predictor_name = std::string(TwoBitSaturatingPredictor::kName);
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--branch-stats") {
-            show_branch_stats = true;
+        if (arg == "--predictor") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --predictor requires a predictor name "
+                             "(--list-predictors)\n";
+                return 1;
+            }
+            predictor_name = argv[++i];
+        } else if (arg == "--list-predictors") {
+            for (std::string_view name : predictor_names()) {
+                std::cout << name << '\n';
+            }
+            return 0;
         } else {
             elf_path = arg;
         }
     }
 
     try {
+        auto predictor = make_predictor(predictor_name);
+        if (predictor == nullptr) {
+            std::cerr << "RISC-E error: unknown predictor \"" << predictor_name
+                      << "\"; available predictors:";
+            for (std::string_view name : predictor_names()) {
+                std::cerr << " " << name;
+            }
+            std::cerr << '\n';
+            return 1;
+        }
+
         TempFileGuard temp_elf;
         if (is_assembly_source(elf_path)) {
             temp_elf.path = assemble_source(elf_path);
@@ -133,17 +157,12 @@ int main(int argc, char** argv) {
 
         LoadedElf elf = load_elf(load_path);
 
-        TwoBitSaturatingPredictor predictor;
-        BranchPredictor* predictor_ptr = show_branch_stats ? &predictor : nullptr;
-
-        Interpreter interpreter(std::move(elf), predictor_ptr);
-        if (show_branch_stats) interpreter.set_branch_trace(true);
+        Interpreter interpreter(std::move(elf), predictor.get());
+        interpreter.set_branch_trace(true);
 
         std::optional<uint32_t> exit_code = interpreter.run();
 
-        if (show_branch_stats) {
-            print_branch_stats(interpreter.branch_stats(), predictor_ptr);
-        }
+        print_branch_stats(interpreter.branch_stats(), predictor.get());
 
         if (exit_code.has_value()) {
             std::cout << "exit code: " << *exit_code << '\n';

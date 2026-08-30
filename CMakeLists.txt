@@ -76,11 +76,25 @@ if(RISCV_GCC)
     add_test(NAME branches COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branches PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 7")
 
-    add_test(NAME branch_stats COMMAND risc-e --branch-stats ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME branch_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5, misses: 2")
 
-    add_test(NAME branch_stats_from_source
-             COMMAND risc-e --branch-stats ${PROGRAM_SRC_DIR}/branches.S)
+    add_test(NAME branch_stats_from_source COMMAND risc-e ${PROGRAM_SRC_DIR}/branches.S)
     set_tests_properties(branch_stats_from_source
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5, misses: 2")
+
+    add_test(NAME branch_stats_gshare
+             COMMAND risc-e --predictor gshare ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(branch_stats_gshare
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5, misses: 2")
+
+    add_test(NAME branch_stats_tournament
+             COMMAND risc-e --predictor tournament ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(branch_stats_tournament
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5, misses: 2")
+
+    add_test(NAME branch_stats_always_not_taken
+             COMMAND risc-e --predictor always-not-taken ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(branch_stats_always_not_taken
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2, misses: 5")
 endif()

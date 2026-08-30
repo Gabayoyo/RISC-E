@@ -396,6 +396,10 @@ void Interpreter::reset() {
     state_.running     = true;
     state_.halt_reason = HaltReason::NONE;
     inst_count_        = 0;
+
+    if (predictor_ != nullptr) {
+        predictor_->reset();
+    }
 }
 
 uint32_t Interpreter::fetch_instruction(uint32_t vaddr) const {

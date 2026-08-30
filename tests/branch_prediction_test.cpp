@@ -1,5 +1,9 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/predictors/always_not_taken.hpp"
+#include "risc-e/cpu/predictors/gshare.hpp"
+#include "risc-e/cpu/predictors/tournament.hpp"
+#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
@@ -7,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -78,11 +83,48 @@ void test_always_not_taken() {
     expect(stats.cond_hits == 1 && stats.cond_misses == 4, "always-not-taken conditional: 1 hit, 4 misses");
 }
 
+void test_gshare() {
+    GsharePredictor predictor;
+    const auto [stats, exit_code] = run_with(predictor);
+
+    expect(exit_code.has_value() && *exit_code == 7, "program should exit with code 7");
+    expect(stats.hits == 5 && stats.misses == 2, "gshare: 5 hits, 2 misses");
+    expect(stats.cond_hits == 4 && stats.cond_misses == 1, "gshare conditional: 4 hits, 1 miss");
+    expect(stats.indirect_hits == 0 && stats.indirect_misses == 1, "gshare JALR: 0 hits, 1 miss");
+}
+
+void test_tournament() {
+    TournamentPredictor predictor;
+    const auto [stats, exit_code] = run_with(predictor);
+
+    expect(exit_code.has_value() && *exit_code == 7, "program should exit with code 7");
+    expect(stats.hits == 5 && stats.misses == 2, "tournament: 5 hits, 2 misses");
+    expect(stats.cond_hits == 4 && stats.cond_misses == 1, "tournament conditional: 4 hits, 1 miss");
+    expect(stats.indirect_hits == 0 && stats.indirect_misses == 1, "tournament JALR: 0 hits, 1 miss");
+}
+
+void test_factory() {
+    expect(make_predictor("two-bit") != nullptr, "two-bit is a valid predictor");
+    expect(make_predictor("always-not-taken") != nullptr, "always-not-taken is a valid predictor");
+    expect(make_predictor("gshare") != nullptr, "gshare is a valid predictor");
+    expect(make_predictor("tournament") != nullptr, "tournament is a valid predictor");
+    expect(make_predictor("bogus") == nullptr, "unknown predictor names are rejected");
+
+    const std::vector<std::string_view> names = predictor_names();
+    expect(names.size() == 4, "four predictors registered");
+    for (std::string_view name : names) {
+        expect(make_predictor(name) != nullptr, "every registered name constructs a predictor");
+    }
+}
+
 } // namespace
 
 int main() {
     test_two_bit_saturating();
     test_always_not_taken();
+    test_gshare();
+    test_tournament();
+    test_factory();
 
     std::printf("branch prediction tests passed\n");
     return 0;

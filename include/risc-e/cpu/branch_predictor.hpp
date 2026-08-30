@@ -3,7 +3,9 @@
 #include "risc-e/decoder/decoded_instruction.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 // RISC-V opcodes the predictor is consulted for.
@@ -71,43 +73,19 @@ public:
     // Feed the actual outcome back so the predictor can learn.
     virtual void resolve(const BranchContext& ctx, const Resolution& res) = 0;
 
-    virtual const char* name() const = 0;
+    virtual std::string_view name() const = 0;
 
     // Optional: clear all learned state.
     virtual void reset() {}
 };
 
-// Classic 2-bit saturating counter predictor indexed by a PC hash.
-class TwoBitSaturatingPredictor : public BranchPredictor {
-public:
-    static constexpr std::size_t kDefaultTableSize = 1024;
+// Builds a predictor from its CLI name (see predictor_names()).
+// Returns nullptr for unknown names.
+std::unique_ptr<BranchPredictor> make_predictor(std::string_view name);
 
-    // table_size must be a power of two (the index uses a mask, not a division).
-    explicit TwoBitSaturatingPredictor(std::size_t table_size = kDefaultTableSize);
+// Names accepted by make_predictor(), e.g. for --predictor / --list-predictors.
+std::vector<std::string_view> predictor_names();
 
-    Prediction predict(const BranchContext& ctx) const override;
-    void resolve(const BranchContext& ctx, const Resolution& res) override;
-    const char* name() const override { return "2-bit saturating"; }
-
-private:
-    std::vector<std::uint8_t> counters_;  // 0..3, >= 2 means "taken"
-    std::size_t index(uint32_t pc) const;
-};
-
-// Trivial baseline predictor: conditional branches are predicted not taken.
-class AlwaysNotTakenPredictor : public BranchPredictor {
-public:
-    Prediction predict(const BranchContext& ctx) const override {
-        // Direct jumps are unconditional; predict their encoded target.
-        if (ctx.is_jal()) {
-            return {ctx.direct_target()};
-        }
-        // Everything else falls through (indirect jumps are predicted wrong).
-        return {ctx.fallthrough_pc()};
-    }
-    void resolve(const BranchContext& ctx, const Resolution& res) override {
-        (void)ctx;
-        (void)res;
-    }
-    const char* name() const override { return "always not-taken"; }
-};
+// Shared 2-bit saturating counter updates (counters range 0..3, >= 2 = taken).
+inline std::uint8_t saturating_increment(std::uint8_t c) { return c < 3 ? c + 1 : 3; }
+inline std::uint8_t saturating_decrement(std::uint8_t c) { return c > 0 ? c - 1 : 0; }

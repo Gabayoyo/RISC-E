@@ -12,7 +12,9 @@ A RISC-V (RV32I) ELF loader and interpreter, written in C++20.
   misalignment raise traps instead of crashing
 - Pluggable branch prediction: conditional branches, JAL and JALR all go
   through a small `BranchPredictor` interface; hit rates are measured
-  target-aware (predicted next PC vs actual next PC)
+  target-aware (predicted next PC vs actual next PC). Built-in predictors:
+  `two-bit`, `always-not-taken`, `gshare`, `tournament` (selectable with
+  `--predictor`)
 
 Not yet implemented: M extension, Zicsr (CSRs), compressed instructions (RVC),
 IR lifting, and JIT code generation.
@@ -22,7 +24,8 @@ IR lifting, and JIT code generation.
 ```
 include/risc-e/   public headers
   cpu/                CPU state, halt reasons, trap interface, branch
-                      stats and the branch predictor interface
+                      stats, the branch predictor interface, and a
+                      predictors/ subdirectory with one file per predictor
   decoder/            instruction decoding
   elf/                ELF loading
   interpreter/        the interpreter
@@ -60,11 +63,15 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
-Pass `--branch-stats` to print per-type branch taken counts and the simulated
-predictor's hit/miss rate:
+Branch stats are printed on every run: per-type branch taken counts and the
+simulated predictor's hit/miss rate. Choose the predictor with
+`--predictor <name>` (default `two-bit`) and list the available names with
+`--list-predictors`:
 
 ```sh
-cd out && ./build/preset/risc-e --branch-stats path/to/program.elf
+cd out && ./build/preset/risc-e path/to/program.elf
+cd out && ./build/preset/risc-e --predictor gshare path/to/program.elf
+cd out && ./build/preset/risc-e --list-predictors
 ```
 
 Assembly sources work too: if the argument ends in `.S` or `.s`, the tool
@@ -73,7 +80,7 @@ assembles it on the fly with a RISC-V cross-compiler found on `PATH`
 `RISCV_GCC` environment variable) and runs the result:
 
 ```sh
-cd out && ./build/preset/risc-e --branch-stats ../tests/programs/src/branches.S
+cd out && ./build/preset/risc-e ../tests/programs/src/branches.S
 ```
 
 Predictions are target-aware: a control transfer (conditional branch, JAL,
@@ -90,13 +97,26 @@ Predictors implement the abstract `BranchPredictor` interface
   (`std::nullopt` means fall-through).
 - `resolve(const BranchContext&, const Resolution&)` feeds the actual outcome
   back for learning.
+- `name()` returns the CLI name; `reset()` clears learned state (called when
+  the interpreter is reset).
 
 `BranchContext` describes the instruction (PC, opcode, registers, immediate)
 and classifies it (`is_conditional_branch`, `is_call`, `is_return`, ...), so a
 predictor can own its own components — a BTB for JALR targets, a return
 address stack for call/return, a direction table for conditional branches.
-`TwoBitSaturatingPredictor` and `AlwaysNotTakenPredictor` are minimal
-examples.
+
+Each predictor lives in its own pair of files under
+`include/risc-e/cpu/predictors/` and `src/cpu/predictors/` — e.g.
+`two_bit_saturating.*`, `gshare.*`, `tournament.*`. A new predictor must:
+
+1. expose a `static constexpr std::string_view kName` with its CLI name,
+2. be registered in `make_predictor()` in `src/cpu/branch_predictor.cpp`,
+
+and it will automatically appear in `predictor_names()` and
+`--list-predictors`.
+
+`TwoBitSaturatingPredictor`, `AlwaysNotTakenPredictor`, `GsharePredictor` and
+`TournamentPredictor` are the built-in examples.
 
 ## Test
 
