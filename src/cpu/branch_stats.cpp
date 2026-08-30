@@ -1,5 +1,37 @@
 #include "risc-e/cpu/branch_stats.hpp"
 
+void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
+                             const BranchContext& ctx, bool taken, uint32_t next_pc,
+                             uint64_t inst_count) {
+    ++stats.control_total;
+
+    if (predictor != nullptr) {
+        const Prediction pred = predictor->predict(ctx);
+        const uint32_t predicted_pc = pred.next_pc.value_or(ctx.fallthrough_pc());
+        predictor->resolve(ctx, Resolution{taken, next_pc});
+
+        if (predicted_pc == next_pc) {
+            ++stats.hits;
+            if (ctx.is_conditional_branch()) {
+                ++stats.cond_hits;
+            } else if (ctx.is_jalr()) {
+                ++stats.indirect_hits;
+            }
+        } else {
+            ++stats.misses;
+            if (ctx.is_conditional_branch()) {
+                ++stats.cond_misses;
+            } else if (ctx.is_jalr()) {
+                ++stats.indirect_misses;
+            }
+        }
+    }
+
+    if (stats.trace_enabled && stats.trace.size() < BranchStats::kMaxTrace) {
+        stats.trace.push_back(BranchRecord{inst_count, ctx.pc, ctx.raw, ctx.funct3, taken, next_pc});
+    }
+}
+
 void BranchStats::reset() {
     total = taken = not_taken = 0;
     type_total.fill(0);

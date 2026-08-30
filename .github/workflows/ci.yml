@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Build and test (gcc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RISC-V cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
+      - name: Configure
+        run: cmake -S . -B out/build/ci --preset ci
+      - name: Build
+        run: cmake --build out/build/ci
+      - name: Test
+        run: ctest --test-dir out/build/ci --output-on-failure
+
+  sanitize:
+    name: Build and test (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RISC-V cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
+      - name: Configure
+        run: cmake -S . -B out/build/sanitize --preset sanitize
+      - name: Build
+        run: cmake --build out/build/sanitize
+      - name: Test
+        run: ctest --test-dir out/build/sanitize --output-on-failure

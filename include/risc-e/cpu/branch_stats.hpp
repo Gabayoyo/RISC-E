@@ -1,5 +1,7 @@
 #pragma once
 
+#include "risc-e/cpu/branch_predictor.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -52,3 +54,12 @@ struct BranchStats {
     double conditional_hit_rate() const;
     double indirect_hit_rate() const;
 };
+
+// Applies one control transfer to the predictor and the cumulative stats.
+// predictor may be null (stats only). A trace entry is recorded when tracing
+// is enabled. This is the single source of truth for hit/miss accounting, so
+// replaying a recorded trace through any predictor yields the same numbers as
+// a live run.
+void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
+                             const BranchContext& ctx, bool taken, uint32_t next_pc,
+                             uint64_t inst_count = 0);

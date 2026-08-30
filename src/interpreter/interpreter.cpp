@@ -2,6 +2,7 @@
 
 #include "risc-e/cpu/trap.hpp"
 #include "risc-e/decoder/decoder.hpp"
+#include "risc-e/decoder/opcodes.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -9,19 +10,9 @@
 #include <utility>
 #include <vector>
 
-namespace {
+namespace opc = opcode;  // short alias for the shared opcode constants
 
-constexpr uint8_t OPCODE_LOAD     = 0b0000011;
-constexpr uint8_t OPCODE_MISC_MEM = 0b0001111;
-constexpr uint8_t OPCODE_OP_IMM   = 0b0010011;
-constexpr uint8_t OPCODE_AUIPC    = 0b0010111;
-constexpr uint8_t OPCODE_STORE    = 0b0100011;
-constexpr uint8_t OPCODE_LUI      = 0b0110111;
-constexpr uint8_t OPCODE_OP       = 0b0110011;
-constexpr uint8_t OPCODE_JAL      = 0b1101111;
-constexpr uint8_t OPCODE_JALR     = 0b1100111;
-constexpr uint8_t OPCODE_BRANCH   = 0b1100011;
-constexpr uint8_t OPCODE_SYSTEM   = 0b1110011;
+namespace {
 
 constexpr uint8_t F3_BEQ  = 0b000;
 constexpr uint8_t F3_BNE  = 0b001;
@@ -103,33 +94,6 @@ bool is_valid_shift(uint8_t funct7, uint8_t funct3) {
     }
 }
 
-void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
-                             const BranchContext& ctx, bool taken, uint32_t next_pc) {
-    ++stats.control_total;
-
-    if (predictor == nullptr) return;
-
-    const Prediction pred = predictor->predict(ctx);
-    const uint32_t predicted_pc = pred.next_pc.value_or(ctx.fallthrough_pc());
-    predictor->resolve(ctx, Resolution{taken, next_pc});
-
-    if (predicted_pc == next_pc) {
-        ++stats.hits;
-        if (ctx.is_conditional_branch()) {
-            ++stats.cond_hits;
-        } else if (ctx.is_jalr()) {
-            ++stats.indirect_hits;
-        }
-    } else {
-        ++stats.misses;
-        if (ctx.is_conditional_branch()) {
-            ++stats.cond_misses;
-        } else if (ctx.is_jalr()) {
-            ++stats.indirect_misses;
-        }
-    }
-}
-
 void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
                     BranchPredictor* predictor, BranchStats& stats, uint64_t inst_count) {
     const uint32_t rs1 = state.x[d.rs1];
@@ -159,11 +123,8 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
     ++stats.type_total[d.funct3];
     if (taken) ++stats.type_taken[d.funct3];
 
-    record_control_transfer(stats, predictor, BranchContext::from_decoded(d), taken, target);
-
-    if (stats.trace_enabled && stats.trace.size() < BranchStats::kMaxTrace) {
-        stats.trace.push_back(BranchRecord{inst_count, d.addr, d.raw, d.funct3, taken, target});
-    }
+    record_control_transfer(stats, predictor, BranchContext::from_decoded(d), taken, target,
+                            inst_count);
 
     state.pc = target;
 }
@@ -420,26 +381,26 @@ void Interpreter::step() {
 
 void Interpreter::execute(const DecodedInstruction& d) {
     switch (d.opcode) {
-        case OPCODE_LUI:
+        case opc::kLui:
             write_register(state_, d.rd, static_cast<uint32_t>(d.imm));
             state_.pc += 4;
             break;
 
-        case OPCODE_AUIPC:
+        case opc::kAuipc:
             write_register(state_, d.rd, state_.pc + static_cast<uint32_t>(d.imm));
             state_.pc += 4;
             break;
 
-        case OPCODE_JAL: {
+        case opc::kJal: {
             write_register(state_, d.rd, state_.pc + 4);
             const uint32_t target = state_.pc + static_cast<uint32_t>(d.imm);
             record_control_transfer(branch_stats_, predictor_, BranchContext::from_decoded(d),
-                                    true, target);
+                                    true, target, inst_count_);
             state_.pc = target;
             break;
         }
 
-        case OPCODE_JALR: {
+        case opc::kJalr: {
             if (d.funct3 != 0) {
                 raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
                 break;
@@ -447,36 +408,36 @@ void Interpreter::execute(const DecodedInstruction& d) {
             const uint32_t target = (state_.x[d.rs1] + static_cast<uint32_t>(d.imm)) & ~1u;
             write_register(state_, d.rd, state_.pc + 4);
             record_control_transfer(branch_stats_, predictor_, BranchContext::from_decoded(d),
-                                    true, target);
+                                    true, target, inst_count_);
             state_.pc = target;
             break;
         }
 
-        case OPCODE_BRANCH:
+        case opc::kBranch:
 
             execute_branch(state_, *this, d, predictor_, branch_stats_, inst_count_);
             break;
 
-        case OPCODE_LOAD:
+        case opc::kLoad:
             execute_load(state_, *this, d);
             break;
 
-        case OPCODE_STORE:
+        case opc::kStore:
             execute_store(state_, *this, d);
             break;
 
-        case OPCODE_OP_IMM:
+        case opc::kOpImm:
             execute_op_imm(state_, *this, d);
             break;
 
-        case OPCODE_OP:
+        case opc::kOp:
             execute_op(state_, *this, d);
             break;
-        case OPCODE_SYSTEM:
+        case opc::kSystem:
             execute_system(state_, *this, d);
             break;
 
-        case OPCODE_MISC_MEM:  // FENCE (funct3=0) / FENCE.I (funct3=1)
+        case opc::kMiscMem:  // FENCE (funct3=0) / FENCE.I (funct3=1)
             if (d.funct3 > 1) {
                 raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
                 break;
