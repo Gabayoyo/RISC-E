@@ -102,6 +102,34 @@ bool is_valid_shift(uint8_t funct7, uint8_t funct3) {
             return false;
     }
 }
+
+void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
+                             const BranchContext& ctx, bool taken, uint32_t next_pc) {
+    ++stats.control_total;
+
+    if (predictor == nullptr) return;
+
+    const Prediction pred = predictor->predict(ctx);
+    const uint32_t predicted_pc = pred.next_pc.value_or(ctx.fallthrough_pc());
+    predictor->resolve(ctx, Resolution{taken, next_pc});
+
+    if (predicted_pc == next_pc) {
+        ++stats.hits;
+        if (ctx.is_conditional_branch()) {
+            ++stats.cond_hits;
+        } else if (ctx.is_jalr()) {
+            ++stats.indirect_hits;
+        }
+    } else {
+        ++stats.misses;
+        if (ctx.is_conditional_branch()) {
+            ++stats.cond_misses;
+        } else if (ctx.is_jalr()) {
+            ++stats.indirect_misses;
+        }
+    }
+}
+
 void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
                     BranchPredictor* predictor, BranchStats& stats, uint64_t inst_count) {
     const uint32_t rs1 = state.x[d.rs1];
@@ -130,15 +158,9 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
     }
     ++stats.type_total[d.funct3];
     if (taken) ++stats.type_taken[d.funct3];
-    if (predictor != nullptr) {
-        const bool predicted = predictor->predict(d.addr);
-        predictor->update(d.addr, taken);
-        if (predicted == taken) {
-            ++stats.hits;
-        } else {
-            ++stats.misses;
-        }
-    }
+
+    record_control_transfer(stats, predictor, BranchContext::from_decoded(d), taken, target);
+
     if (stats.trace_enabled && stats.trace.size() < BranchStats::kMaxTrace) {
         stats.trace.push_back(BranchRecord{inst_count, d.addr, d.raw, d.funct3, taken, target});
     }
@@ -404,10 +426,14 @@ void Interpreter::execute(const DecodedInstruction& d) {
             state_.pc += 4;
             break;
 
-        case OPCODE_JAL:
+        case OPCODE_JAL: {
             write_register(state_, d.rd, state_.pc + 4);
-            state_.pc += d.imm;
+            const uint32_t target = state_.pc + static_cast<uint32_t>(d.imm);
+            record_control_transfer(branch_stats_, predictor_, BranchContext::from_decoded(d),
+                                    true, target);
+            state_.pc = target;
             break;
+        }
 
         case OPCODE_JALR: {
             if (d.funct3 != 0) {
@@ -416,6 +442,8 @@ void Interpreter::execute(const DecodedInstruction& d) {
             }
             const uint32_t target = (state_.x[d.rs1] + static_cast<uint32_t>(d.imm)) & ~1u;
             write_register(state_, d.rd, state_.pc + 4);
+            record_control_transfer(branch_stats_, predictor_, BranchContext::from_decoded(d),
+                                    true, target);
             state_.pc = target;
             break;
         }

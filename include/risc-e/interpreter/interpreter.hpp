@@ -1,5 +1,6 @@
 #pragma once
 
+#include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/state.hpp"
 #include "risc-e/cpu/trap.hpp"

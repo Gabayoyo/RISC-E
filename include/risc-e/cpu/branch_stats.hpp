@@ -15,67 +15,40 @@ struct BranchRecord {
     uint32_t target;      // pc after the branch (taken or fall-through)
 };
 
-// Cumulative branch statistics. Counts are always updated; the trace is only
-// recorded when trace_enabled is true (and is capped at kMaxTrace records).
+// Cumulative control-flow statistics. Counts are always updated; the trace is
+// only recorded when trace_enabled is true (and is capped at kMaxTrace records).
 struct BranchStats {
     static constexpr std::size_t kMaxTrace = 100000;
 
+    // Conditional branches only.
     uint64_t total     = 0;
     uint64_t taken     = 0;
     uint64_t not_taken = 0;
 
-    // Predictor comparison (only meaningful when a predictor is attached).
-    uint64_t hits   = 0;
-    uint64_t misses = 0;
-
     // Per-funct3 (branch type) counters, indexed 0..7.
     std::array<uint64_t, 8> type_total{};
     std::array<uint64_t, 8> type_taken{};
+
+    // Every control transfer: conditional branches + JAL + JALR.
+    uint64_t control_total = 0;
+
+    // Target-aware predictor comparison over all control transfers (only
+    // meaningful when a predictor is attached). A transfer is a hit when the
+    // predicted next PC equals the actual next PC.
+    uint64_t hits   = 0;
+    uint64_t misses = 0;
+
+    // Breakdown of the predictor comparison.
+    uint64_t cond_hits      = 0;
+    uint64_t cond_misses    = 0;
+    uint64_t indirect_hits  = 0;  // JALR
+    uint64_t indirect_misses = 0; // JALR
 
     bool trace_enabled = false;
     std::vector<BranchRecord> trace;
 
     void reset();
     double hit_rate() const;
-};
-
-// Simulated branch predictor contract. The interpreter compares each
-// prediction against the actual branch outcome to compute hit/miss rates.
-class BranchPredictor {
-public:
-    virtual ~BranchPredictor() = default;
-    virtual bool predict(uint32_t pc) const = 0;
-    virtual void update(uint32_t pc, bool taken) = 0;
-    virtual const char* name() const = 0;
-};
-
-// Classic 2-bit saturating counter predictor indexed by a PC hash.
-class TwoBitSaturatingPredictor : public BranchPredictor {
-public:
-    static constexpr std::size_t kDefaultTableSize = 1024;
-
-    // table_size must be a power of two (the index uses a mask, not a division).
-    explicit TwoBitSaturatingPredictor(std::size_t table_size = kDefaultTableSize);
-
-    bool predict(uint32_t pc) const override;
-    void update(uint32_t pc, bool taken) override;
-    const char* name() const override { return "2-bit saturating"; }
-
-private:
-    std::vector<std::uint8_t> counters_;  // 0..3, >= 2 means "taken"
-    std::size_t index(uint32_t pc) const;
-};
-
-// Trivial baseline predictor: never predicts taken.
-class AlwaysNotTakenPredictor : public BranchPredictor {
-public:
-    bool predict(uint32_t pc) const override {
-        (void)pc;
-        return false;
-    }
-    void update(uint32_t pc, bool taken) override {
-        (void)pc;
-        (void)taken;
-    }
-    const char* name() const override { return "always not-taken"; }
+    double conditional_hit_rate() const;
+    double indirect_hit_rate() const;
 };

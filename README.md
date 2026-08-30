@@ -10,6 +10,9 @@ A RISC-V (RV32I) ELF loader and interpreter, written in C++20.
 - ECALL syscall emulation: `write` (64), `exit` (93), `brk` (214)
 - Page-based memory with on-demand allocation, unmapped access and
   misalignment raise traps instead of crashing
+- Pluggable branch prediction: conditional branches, JAL and JALR all go
+  through a small `BranchPredictor` interface; hit rates are measured
+  target-aware (predicted next PC vs actual next PC)
 
 Not yet implemented: M extension, Zicsr (CSRs), compressed instructions (RVC),
 IR lifting, and JIT code generation.
@@ -18,7 +21,8 @@ IR lifting, and JIT code generation.
 
 ```
 include/risc-e/   public headers
-  cpu/                CPU state, halt reasons, trap interface, branch stats
+  cpu/                CPU state, halt reasons, trap interface, branch
+                      stats and the branch predictor interface
   decoder/            instruction decoding
   elf/                ELF loading
   interpreter/        the interpreter
@@ -30,7 +34,11 @@ src/
   elf/                implementation
   interpreter/        implementation
   memory/             implementation
-tests/                unit tests and RISC-V test programs
+tests/
+  unit tests and RISC-V test programs
+tests/programs/
+  src/                RISC-V assembly sources
+  elf/                built ELF outputs (generated, not tracked)
 ```
 
 Each public header under `include/risc-e/` has a matching implementation in
@@ -59,14 +67,49 @@ predictor's hit/miss rate:
 cd out && ./build/preset/risc-e --branch-stats path/to/program.elf
 ```
 
+Assembly sources work too: if the argument ends in `.S` or `.s`, the tool
+assembles it on the fly with a RISC-V cross-compiler found on `PATH`
+(`riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`, overridable via the
+`RISCV_GCC` environment variable) and runs the result:
+
+```sh
+cd out && ./build/preset/risc-e --branch-stats ../tests/programs/src/branches.S
+```
+
+Predictions are target-aware: a control transfer (conditional branch, JAL,
+JALR) is a hit when the predicted next PC matches the actual next PC. Direct
+jumps (JAL) are trivially predictable and usually count as hits; the
+conditional and indirect (JALR) hit rates are reported separately.
+
+### Adding a predictor
+
+Predictors implement the abstract `BranchPredictor` interface
+(`include/risc-e/cpu/branch_predictor.hpp`):
+
+- `predict(const BranchContext&)` returns the predicted next PC
+  (`std::nullopt` means fall-through).
+- `resolve(const BranchContext&, const Resolution&)` feeds the actual outcome
+  back for learning.
+
+`BranchContext` describes the instruction (PC, opcode, registers, immediate)
+and classifies it (`is_conditional_branch`, `is_call`, `is_return`, ...), so a
+predictor can own its own components — a BTB for JALR targets, a return
+address stack for call/return, a direction table for conditional branches.
+`TwoBitSaturatingPredictor` and `AlwaysNotTakenPredictor` are minimal
+examples.
+
 ## Test
 
-If `riscv64-unknown-elf-gcc` is on the PATH, the build also assembles the
-programs under `tests/programs/` and registers integration tests for them.
+If a RISC-V GCC cross-compiler is on the PATH (`riscv64-unknown-elf-gcc` or
+`riscv64-elf-gcc`), the build also assembles the
+programs under `tests/programs/src/` into `tests/programs/elf/` and registers
+integration tests for them.
 
 ```sh
 cd out && ctest --test-dir build/preset --output-on-failure
 ```
 
 Tests cover ELF loading, stack/heap memory, unmapped read/write faults,
-misaligned access, and `exit` codes.
+misaligned access, `exit` codes, and branch prediction (including a
+toolchain-free test that feeds hand-encoded instructions to the interpreter
+and checks the predictor's hit/miss counts).
