@@ -1,6 +1,6 @@
 #pragma once
 
-#include "risc-e/core/memory/memory_interface.hpp"
+#include "risc-e/memory/memory_interface.hpp"
 
 #include <cstdint>
 

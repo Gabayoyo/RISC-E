@@ -1,6 +1,6 @@
 #pragma once
 
-#include "risc-e/core/decoder/decoded_instruction.hpp"
+#include "risc-e/decoder/decoded_instruction.hpp"
 
 #include <cstdint>
 

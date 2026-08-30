@@ -54,6 +54,7 @@ class TwoBitSaturatingPredictor : public BranchPredictor {
 public:
     static constexpr std::size_t kDefaultTableSize = 1024;
 
+    // table_size must be a power of two (the index uses a mask, not a division).
     explicit TwoBitSaturatingPredictor(std::size_t table_size = kDefaultTableSize);
 
     bool predict(uint32_t pc) const override;

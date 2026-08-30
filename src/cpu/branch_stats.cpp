@@ -1,4 +1,4 @@
-#include "risc-e/core/cpu/branch_stats.hpp"
+#include "risc-e/cpu/branch_stats.hpp"
 
 #include <algorithm>
 
@@ -20,7 +20,8 @@ TwoBitSaturatingPredictor::TwoBitSaturatingPredictor(std::size_t table_size)
 
 std::size_t TwoBitSaturatingPredictor::index(uint32_t pc) const {
     if (counters_.empty()) return 0;
-    return (pc ^ (pc >> 4) ^ (pc >> 8)) % counters_.size();
+    // Table size must be a power of two so the hash can be masked (no division).
+    return (pc ^ (pc >> 4) ^ (pc >> 8)) & (counters_.size() - 1);
 }
 
 bool TwoBitSaturatingPredictor::predict(uint32_t pc) const {

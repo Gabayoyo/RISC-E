@@ -1,5 +1,5 @@
-#include "risc-e/core/interpreter/interpreter.hpp"
-#include "risc-e/core/memory/physical_memory.hpp"
+#include "risc-e/interpreter/interpreter.hpp"
+#include "risc-e/memory/physical_memory.hpp"
 
 #include <cstdio>
 #include <cstdlib>

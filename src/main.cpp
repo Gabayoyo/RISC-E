@@ -1,6 +1,6 @@
-#include "risc-e/core/cpu/branch_stats.hpp"
-#include "risc-e/core/elf/loader.hpp"
-#include "risc-e/core/interpreter/interpreter.hpp"
+#include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/elf/loader.hpp"
+#include "risc-e/interpreter/interpreter.hpp"
 
 #include <exception>
 #include <iostream>

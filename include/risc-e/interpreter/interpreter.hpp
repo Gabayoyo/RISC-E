@@ -1,11 +1,11 @@
 #pragma once
 
-#include "risc-e/core/cpu/branch_stats.hpp"
-#include "risc-e/core/cpu/state.hpp"
-#include "risc-e/core/cpu/trap.hpp"
-#include "risc-e/core/decoder/decoded_instruction.hpp"
-#include "risc-e/core/elf/loader.hpp"
-#include "risc-e/core/memory/physical_memory.hpp"
+#include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/state.hpp"
+#include "risc-e/cpu/trap.hpp"
+#include "risc-e/decoder/decoded_instruction.hpp"
+#include "risc-e/elf/loader.hpp"
+#include "risc-e/memory/physical_memory.hpp"
 
 #include <cstdint>
 #include <optional>

@@ -1,12 +1,13 @@
-#include "risc-e/core/interpreter/interpreter.hpp"
+#include "risc-e/interpreter/interpreter.hpp"
 
-#include "risc-e/core/cpu/trap.hpp"
-#include "risc-e/core/decoder/decoder.hpp"
+#include "risc-e/cpu/trap.hpp"
+#include "risc-e/decoder/decoder.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -127,10 +128,8 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
     } else {
         ++stats.not_taken;
     }
-    if (d.funct3 < 8) {
-        ++stats.type_total[d.funct3];
-        if (taken) ++stats.type_taken[d.funct3];
-    }
+    ++stats.type_total[d.funct3];
+    if (taken) ++stats.type_taken[d.funct3];
     if (predictor != nullptr) {
         const bool predicted = predictor->predict(d.addr);
         predictor->update(d.addr, taken);
@@ -476,12 +475,15 @@ void Interpreter::handle_trap() {
                     const uint32_t count = state_.x[12];
 
                     if (fd == 1 || fd == 2) {
+                        std::vector<uint8_t> bytes;
+                        bytes.reserve(count);
                         for (uint32_t i = 0; i < count; ++i) {
                             const uint8_t byte = state_.mem->load8(buf + i);
                             if (!state_.running) return;  // fault inside the buffer halted execution
-                            putchar(static_cast<char>(byte));
+                            bytes.push_back(byte);
                         }
-                        fflush(stdout);
+                        std::fwrite(bytes.data(), 1, bytes.size(), stdout);
+                        std::fflush(stdout);
                         state_.x[10] = count;
                     } else {
                         state_.x[10] = static_cast<uint32_t>(-1);

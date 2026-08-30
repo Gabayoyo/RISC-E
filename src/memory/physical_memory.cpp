@@ -1,4 +1,4 @@
-#include "risc-e/core/memory/physical_memory.hpp"
+#include "risc-e/memory/physical_memory.hpp"
 
 #include <algorithm>
 #include <cstdint>
