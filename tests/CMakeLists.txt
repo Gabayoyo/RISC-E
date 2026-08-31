@@ -20,6 +20,10 @@ add_executable(icache_test icache_test.cpp)
 target_link_libraries(icache_test PRIVATE risc-e-core)
 add_test(NAME icache_test COMMAND icache_test)
 
+add_executable(memory_cache_test memory_cache_test.cpp)
+target_link_libraries(memory_cache_test PRIVATE risc-e-core)
+add_test(NAME memory_cache_test COMMAND memory_cache_test)
+
 # Integration tests: RISC-V test programs compiled with a cross-compiler.
 # When no RISC-V GCC is on PATH these tests are skipped.
 
@@ -251,4 +255,27 @@ if(RISCV_GCC)
     add_test(NAME list_predictor_detail COMMAND risc-e --list- gshare)
     set_tests_properties(list_predictor_detail
                          PROPERTIES PASS_REGULAR_EXPRESSION "pattern-history")
+
+    # Data caches (cache type: the L1+L2 hierarchy) and the backing store
+    add_test(NAME dcache_report COMMAND risc-e ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(dcache_report
+                         PROPERTIES PASS_REGULAR_EXPRESSION "speedup vs L1-only")
+
+    add_test(NAME dcache_select COMMAND risc-e --dcache l1-l2
+             ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(dcache_select PROPERTIES PASS_REGULAR_EXPRESSION "write-back")
+
+    add_test(NAME dcache_select_unknown COMMAND risc-e --dcache l1-nope
+             ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(dcache_select_unknown PROPERTIES WILL_FAIL TRUE)
+
+    add_test(NAME dcache_param COMMAND risc-e --param l1-l2.l2-ways=2
+             ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(dcache_param
+                         PROPERTIES PASS_REGULAR_EXPRESSION "L2 \\(32 sets x 2 ways")
+
+    add_test(NAME dcache_comparison COMMAND risc-e --comparison cache
+             ${PROGRAM_SRC_DIR}/general_memory.c)
+    set_tests_properties(dcache_comparison
+                         PROPERTIES PASS_REGULAR_EXPRESSION "l1-l2.*[0-9].*x")
 endif()

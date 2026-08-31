@@ -1,11 +1,11 @@
-#include "risc-e/cpu/icache.hpp"
-#include "risc-e/cpu/icache/fully_associative.hpp"
-#include "risc-e/cpu/icache/prefetch.hpp"
-#include "risc-e/cpu/icache/pseudo_lru.hpp"
-#include "risc-e/cpu/icache/set_associative.hpp"
+#include "risc-e/component/icache/icache.hpp"
+#include "risc-e/component/icache/implementations/fully_associative.hpp"
+#include "risc-e/component/icache/implementations/prefetch.hpp"
+#include "risc-e/component/icache/implementations/pseudo_lru.hpp"
+#include "risc-e/component/icache/implementations/set_associative.hpp"
 #include "risc-e/elf/loader.hpp"
-#include "risc-e/harness/registry.hpp"
-#include "risc-e/harness/run_context.hpp"
+#include "risc-e/component/registry.hpp"
+#include "risc-e/component/run_context.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
 #include <cmath>
@@ -55,19 +55,19 @@ LoadedElf build_program() {
     return elf;
 }
 
-ProfileStats run_program() {
+ICacheStats run_program() {
     Interpreter interp(build_program());
     const std::optional<uint32_t> exit_code = interp.run();
     expect(exit_code.has_value() && *exit_code == 7, "program exits with code 7");
     return interp.profile_stats();
 }
 
-void test_footprint(const ProfileStats& s) {
+void test_footprint(const ICacheStats& s) {
     expect(s.instructions == 16, "16 instructions executed");
     expect(s.seen_pcs.size() == 8, "8 distinct instructions executed");
 }
 
-void test_blocks(const ProfileStats& s) {
+void test_blocks(const ICacheStats& s) {
     expect(s.blocks.size() == 5, "5 dynamic basic blocks");
     expect(s.pc_to_id.size() == 5, "5 interned entry PCs");
 
@@ -123,8 +123,8 @@ void test_fa() {
 // A direct-mapped cache with 2 sets puts 0x100 and 0x200 in set 0: they
 // evict each other (conflict misses) while 0x101 stays alone in set 1. The
 // same trace under full associativity has no conflicts at all.
-ProfileStats make_thrash_profile() {
-    ProfileStats s;
+ICacheStats make_thrash_profile() {
+    ICacheStats s;
     const uint32_t pcs[3] = {0x1000, 0x2000, 0x1010};
     for (int round = 0; round < 2; ++round) {
         for (int k = 0; k < 3; ++k) {
@@ -146,7 +146,7 @@ ProfileStats make_thrash_profile() {
 }
 
 void test_conflict() {
-    const ProfileStats s = make_thrash_profile();  // 32 instructions, 8 entries
+    const ICacheStats s = make_thrash_profile();  // 32 instructions, 8 entries
     expect(s.entry_sequence.size() == 8 && s.instructions == 32, "thrash profile built");
 
     ICacheConfig dm;  // direct-mapped, 2 sets
@@ -173,8 +173,8 @@ void test_conflict() {
 // id0 id1 id2 id3 id0 id1 id2 id4 id3: the fifth line evicts something; LRU
 // drops line 0x400 (stale since fill), the PLRU tree drops a different way,
 // so the following id3 demand hits under PLRU and misses under LRU.
-ProfileStats make_plru_profile() {
-    ProfileStats s;
+ICacheStats make_plru_profile() {
+    ICacheStats s;
     const uint32_t pcs[5] = {0x1000, 0x2000, 0x3000, 0x4000, 0x5000};
     const uint32_t order[9] = {0, 1, 2, 3, 0, 1, 2, 4, 3};
     for (const uint32_t k : order) {
@@ -188,7 +188,7 @@ ProfileStats make_plru_profile() {
 }
 
 void test_plru() {
-    const ProfileStats s = make_plru_profile();
+    const ICacheStats s = make_plru_profile();
 
     ICacheConfig lru;
     lru.sets = 1;
@@ -208,8 +208,8 @@ void test_plru() {
 
 // Two adjacent lines: 0x1000 (line 0x100) then 0x1010 (line 0x101). Next-line
 // prefetch turns the second block's first demand into a hit.
-ProfileStats make_prefetch_profile() {
-    ProfileStats s;
+ICacheStats make_prefetch_profile() {
+    ICacheStats s;
     const uint32_t pcs[2] = {0x1000, 0x1010};
     for (int k = 0; k < 2; ++k) {
         const uint32_t id = s.record_block_entry(pcs[k]);
@@ -222,7 +222,7 @@ ProfileStats make_prefetch_profile() {
 }
 
 void test_prefetch() {
-    const ProfileStats s = make_prefetch_profile();
+    const ICacheStats s = make_prefetch_profile();
 
     ICacheConfig plain;
     plain.sets = 8;
@@ -272,7 +272,7 @@ void test_component() {
 }
 
 void test_reset() {
-    ProfileStats s;
+    ICacheStats s;
     s.record_instruction(0x10000);
     s.record_block_entry(0x10000);
     expect(s.instructions == 1 && s.blocks.size() == 1, "profile populated");
@@ -284,7 +284,7 @@ void test_reset() {
 } // namespace
 
 int main() {
-    const ProfileStats s = run_program();
+    const ICacheStats s = run_program();
     test_footprint(s);
     test_blocks(s);
     test_fa();

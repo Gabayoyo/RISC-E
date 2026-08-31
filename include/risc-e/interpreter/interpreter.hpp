@@ -1,12 +1,13 @@
 #pragma once
 
-#include "risc-e/cpu/branch_predictor.hpp"
-#include "risc-e/cpu/branch_stats.hpp"
-#include "risc-e/cpu/profile.hpp"
+#include "risc-e/component/predictor/branch_predictor.hpp"
+#include "risc-e/component/predictor/branch_stats.hpp"
+#include "risc-e/component/icache/icache_stats.hpp"
 #include "risc-e/cpu/state.hpp"
 #include "risc-e/cpu/trap.hpp"
 #include "risc-e/decoder/decoded_instruction.hpp"
 #include "risc-e/elf/loader.hpp"
+#include "risc-e/component/dcache/dcache_stats.hpp"
 #include "risc-e/memory/physical_memory.hpp"
 
 #include <cstdint>
@@ -38,9 +39,12 @@ public:
     void set_branch_trace(bool enabled) { branch_stats_.trace_enabled = enabled; }
     void reset_branch_stats() { branch_stats_.reset(); }
 
-    const ProfileStats& profile_stats() const { return profile_stats_; }
-    ProfileStats& profile_stats() { return profile_stats_; }
+    const ICacheStats& profile_stats() const { return profile_stats_; }
+    ICacheStats& profile_stats() { return profile_stats_; }
     void reset_profile_stats();
+
+    const DCacheStats& access_trace() const { return access_trace_; }
+    DCacheStats& access_trace() { return access_trace_; }
 
     void raiseTrap(TrapCause cause, uint32_t value = 0) override;
 
@@ -54,13 +58,14 @@ private:
 
     BranchPredictor* predictor_ = nullptr;
     BranchStats branch_stats_;
-    ProfileStats profile_stats_;
+    ICacheStats profile_stats_;
+    DCacheStats access_trace_;
 
     // Basic-block identification state: whether the next instruction starts a
     // new block (set when the previous instruction was a control transfer),
     // and the interned id of the block currently being executed.
     bool block_entering_ = true;
-    uint32_t current_block_id_ = ProfileStats::kNoBlock;
+    uint32_t current_block_id_ = ICacheStats::kNoBlock;
 
     CPUstate state_;
     PhysicalMemory mem_;

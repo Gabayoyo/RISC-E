@@ -1,8 +1,8 @@
-#include "risc-e/cpu/branch_predictor.hpp"
-#include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/harness/component.hpp"
-#include "risc-e/harness/registry.hpp"
-#include "risc-e/harness/run_context.hpp"
+#include "risc-e/component/predictor/branch_predictor.hpp"
+#include "risc-e/component/pipeline/pipeline.hpp"
+#include "risc-e/component/component.hpp"
+#include "risc-e/component/registry.hpp"
+#include "risc-e/component/run_context.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -26,8 +26,8 @@ void expect(bool condition, const char* message) {
 int main() {
     // Types are declared at the type level, in registration order.
     const std::vector<std::string_view> types = component_types();
-    expect(types.size() == 3 && types[0] == "predictor" && types[1] == "pipeline" &&
-               types[2] == "icache",
+    expect(types.size() == 4 && types[0] == "predictor" && types[1] == "pipeline" &&
+               types[2] == "icache" && types[3] == "cache",
            "types register in declaration order");
 
     // Registry: construction and unknown-name rejection.

@@ -225,7 +225,8 @@ void execute_op(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
     state.pc += 4;
 }
 
-void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+                  DCacheStats& trace) {
     const uint32_t address = state.x[d.rs1] + static_cast<uint32_t>(d.imm);
     uint32_t result = 0;
 
@@ -261,11 +262,16 @@ void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) 
 
 
     if (!state.running) return;  // a memory fault halted execution; rd must not be written
+    const uint8_t size = (d.funct3 == F3_LB || d.funct3 == F3_LBU) ? 1
+                         : (d.funct3 == F3_LH || d.funct3 == F3_LHU) ? 2
+                                                                    : 4;
+    trace.record(DCacheKind::Load, address, size);
     write_register(state, d.rd, result);
     state.pc += 4;
 }
 
-void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+                   DCacheStats& trace) {
     const uint32_t address = state.x[d.rs1] + static_cast<uint32_t>(d.imm);
 
     switch (d.funct3) {
@@ -283,6 +289,8 @@ void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d)
     }
 
     if (!state.running) return;  // a memory fault halted execution
+    const uint8_t size = (d.funct3 == F3_SB) ? 1 : (d.funct3 == F3_SH) ? 2 : 4;
+    trace.record(DCacheKind::Store, address, size);
     state.pc += 4;
 }
 
@@ -341,6 +349,7 @@ Interpreter::Interpreter(Interpreter&& other) noexcept
       predictor_(other.predictor_),
       branch_stats_(std::move(other.branch_stats_)),
       profile_stats_(std::move(other.profile_stats_)),
+      access_trace_(std::move(other.access_trace_)),
       block_entering_(other.block_entering_),
       current_block_id_(other.current_block_id_),
       state_(other.state_),
@@ -361,6 +370,7 @@ void Interpreter::reset() {
     state_.halt_reason = HaltReason::NONE;
     inst_count_        = 0;
     reset_profile_stats();
+    access_trace_.reset();
 
     if (predictor_ != nullptr) {
         predictor_->reset();
@@ -404,7 +414,7 @@ void Interpreter::step() {
 void Interpreter::reset_profile_stats() {
     profile_stats_.reset();
     block_entering_ = true;
-    current_block_id_ = ProfileStats::kNoBlock;
+    current_block_id_ = ICacheStats::kNoBlock;
 }
 
 void Interpreter::execute(const DecodedInstruction& d) {
@@ -447,11 +457,11 @@ void Interpreter::execute(const DecodedInstruction& d) {
             break;
 
         case opc::kLoad:
-            execute_load(state_, *this, d);
+            execute_load(state_, *this, d, access_trace_);
             break;
 
         case opc::kStore:
-            execute_store(state_, *this, d);
+            execute_store(state_, *this, d, access_trace_);
             break;
 
         case opc::kOpImm:

@@ -48,9 +48,20 @@ exit code.
   and `icache-prefetch` (set associative + next-line prefetch). Each prices
   the run's fetches in cycles and reports hits/misses/evictions; select one
   with `--icache`, compare all with `--comparison icache`.
+- **Data caches** — the `l1-l2` component models the L1 + L2 hierarchy over
+  the recorded load/store trace: a write-back, write-allocate L1 (default
+  16 sets x 4 ways, 16 B lines) in front of a write-back L2 (32 x 8, 64 B
+  lines) backed by DRAM. L1's misses and dirty evictions feed L2, so the two
+  levels are chained, not modeled separately. Latency constants are
+  documented in the report (defaults: L1 hit 4, L2 hit 14, DRAM 100), and
+  the comparison baseline is the **same L1 with no L2** — the speedup
+  answers what the second level buys against a real design, not against "no
+  cache at all". Tune either level with prefixed params (`l1-ways`,
+  `l2-sets`, ...). Select it with `--dcache`, compare with
+  `--comparison cache`.
 - **Components** — predictors, the pipeline, and the caches plug into one
   harness interface: tunables (`--param`), a report section, and within-type
-  comparison. Memory and other component types slot in the same way.
+  comparison. Other component types slot in the same way.
 
 ## Build
 
@@ -77,10 +88,12 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
-Every run prints three report sections — **branch prediction** (predictor name,
+Every run prints five report sections — **branch prediction** (predictor name,
 hit/miss rate and counts, branches scored), **pipeline** (the cycle cost of the
-run under a configurable pipeline model), and **icache** (block statistics
-plus the selected cache design's hits, misses and cycles):
+run under a configurable pipeline model), **icache** (block statistics plus
+the selected cache design's hits, misses and cycles), **cache** (the L1+L2
+hierarchy's hits, misses and cycles at both levels), and **memory** (the
+backing DRAM store's cost):
 
 ```
 branch prediction
@@ -131,12 +144,24 @@ the fetch stage for `miss-penalty` cycles. Cycles saved is measured against a
 machine with no instruction cache at all. The active design is selected with
 `--icache` (default `icache-fa`).
 
+The cache section is a first-order cycle model of the L1 + L2 hierarchy:
+every recorded load/store is replayed against the L1 (write-back,
+write-allocate); L1 misses and dirty evictions are forwarded to the L2, and
+an L2 miss pays the DRAM round trip. The latency constants are printed in
+the report (defaults: L1 hit 4, L2 hit 14, DRAM 100) — the hit/miss event
+counts are exact, and the cycle prices are these named constants, not hidden
+knobs. The speedup is measured against the **same L1 with no L2** (every L1
+miss pays DRAM directly), so it answers "what does the second level buy"
+against a real design. The active design is selected with `--dcache` (default
+`l1-l2`).
+
 ### CLI reference
 
 | Flag | Value | Effect |
 | --- | --- | --- |
 | `--predictor <name>` | `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras` | Select the branch predictor. |
 | `--icache <name>` | `icache-fa` (default), `icache-setassoc`, `icache-plru`, `icache-prefetch` | Select the instruction-cache design. |
+| `--dcache <name>` | `l1-l2` (default) | Select the L1+L2 data-cache hierarchy. |
 | `--param <c>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a component tunable; repeatable. |
 | `--pipeline-stages <N>` | integer ≥ 1 (default `5`) | Pipeline depth; the derived penalty grows with depth. |
 | `--stall-penalty <N>` | non-negative integer | Override the per-stall-event penalty directly. |
@@ -147,6 +172,7 @@ machine with no instruction cache at all. The active design is selected with
 cd out && ./build/preset/risc-e path/to/program.elf
 cd out && ./build/preset/risc-e --predictor gshare path/to/program.elf
 cd out && ./build/preset/risc-e --icache icache-plru path/to/program.elf
+cd out && ./build/preset/risc-e --dcache l1-l2 --param l1-l2.l2-sets=64 path/to/program.elf
 cd out && ./build/preset/risc-e --list
 ```
 
@@ -295,7 +321,7 @@ public:
 ```
 
 The harness features — tunables, the report section, and comparison — come
-automatically. Registration is one call in `src/harness/registry.cpp`:
+automatically. Registration is one call in `src/component/registry.cpp`:
 
 ```cpp
 register_component<BranchPredictor, MyPredictor>(
@@ -308,7 +334,7 @@ The type's base class (`BranchPredictor`) is part of the registration, so a
 
 ### Adding a new type
 
-If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks. The four instruction caches are the live example of a type with shared implementations: `ICacheComponent` implements `report()` and `cycle_cost()` once, and each design in `include/risc-e/cpu/icache/` only declares its name, defaults, and tunables — a new policy is one small class:
+If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks. The four instruction caches are the live example of a type with shared implementations: `ICacheComponent` implements `report()` and `cycle_cost()` once, and each design in `include/risc-e/component/icache/` only declares its name, defaults, and tunables — a new policy is one small class:
 
 ```cpp
 class MyMemoryBase : public Component {
@@ -366,14 +392,20 @@ its type's base class (and `Component`).
 
 ```
 include/risc-e/   public headers
-  cpu/                CPU state, traps, branch stats, the predictor
-                      interface, pipeline model, profile recording, icache
-                      base, predictor/ and icache/ implementations
+  component/          the component harness (interface, registry, run
+                      context) and one subfolder per component family, each
+                      holding its base and recorded-data header at the top
+                      and its implementations/ underneath: predictor/
+                      (branch_predictor, branch_stats, return_address_stack;
+                      implementations: 5 predictors), pipeline/, icache/
+                      (icache, icache_stats; implementations: 4 designs), and
+                      dcache/ (dcache, dcache_stats, replacement;
+                      implementations: the L1+L2 hierarchy)
+  cpu/                core CPU state and traps (non-component)
   decoder/            instruction decoding and opcode constants
   elf/                ELF loading
   interpreter/        the interpreter
-  memory/             memory interface and physical memory
-  harness/            the component interface, registry, and run context
+  memory/             memory interface and physical memory (non-component)
 src/                implementation, mirroring include/risc-e/
   main.cpp            CLI frontend
 tests/              unit tests and RISC-V test programs

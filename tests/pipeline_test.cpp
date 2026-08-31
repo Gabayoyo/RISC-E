@@ -1,6 +1,6 @@
-#include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/branch_stats.hpp"
-#include "risc-e/harness/run_context.hpp"
+#include "risc-e/component/pipeline/pipeline.hpp"
+#include "risc-e/component/predictor/branch_stats.hpp"
+#include "risc-e/component/run_context.hpp"
 
 #include <cmath>
 #include <cstdio>

@@ -1,13 +1,14 @@
-#include "risc-e/cpu/branch_predictor.hpp"
-#include "risc-e/cpu/branch_stats.hpp"
-#include "risc-e/cpu/icache.hpp"
-#include "risc-e/cpu/icache/fully_associative.hpp"
-#include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/predictor/two_bit_saturating.hpp"
+#include "risc-e/component/predictor/branch_predictor.hpp"
+#include "risc-e/component/predictor/branch_stats.hpp"
+#include "risc-e/component/icache/icache.hpp"
+#include "risc-e/component/icache/implementations/fully_associative.hpp"
+#include "risc-e/component/dcache/implementations/l1l2_cache.hpp"
+#include "risc-e/component/pipeline/pipeline.hpp"
+#include "risc-e/component/predictor/implementations/two_bit_saturating.hpp"
 #include "risc-e/elf/loader.hpp"
-#include "risc-e/harness/component.hpp"
-#include "risc-e/harness/registry.hpp"
-#include "risc-e/harness/run_context.hpp"
+#include "risc-e/component/component.hpp"
+#include "risc-e/component/registry.hpp"
+#include "risc-e/component/run_context.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
 #include "runtime_files.hpp"
@@ -161,7 +162,8 @@ void apply_overrides(Component& component, const std::vector<ParamOverride>& ove
 // accepts the parameter and value. Returns false after reporting the first
 // problem.
 bool validate_overrides(const std::vector<ParamOverride>& overrides, bool comparison_mode,
-                        const std::string& predictor_name, const std::string& icache_name) {
+                        const std::string& predictor_name, const std::string& icache_name,
+                        const std::string& dcache_name) {
     for (const ParamOverride& o : overrides) {
         auto comp = make_component(o.component);
         if (comp == nullptr) {
@@ -170,7 +172,8 @@ bool validate_overrides(const std::vector<ParamOverride>& overrides, bool compar
             return false;
         }
         if (!comparison_mode && o.component != predictor_name &&
-            o.component != PipelineModel::kName && o.component != icache_name) {
+            o.component != PipelineModel::kName && o.component != icache_name &&
+            o.component != dcache_name) {
             std::cerr << "RISC-E error: --param \"" << o.component << "." << o.name
                       << "\" targets \"" << o.component << "\", which is not active in this run"
                       << " (--predictor selected \"" << predictor_name << "\")\n";
@@ -293,15 +296,30 @@ void print_comparison_table(std::string_view type, const std::string& only,
     std::cout << "comparison (" << events << " events"
               << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description());
     if (!speedup_baseline.empty()) std::cout << "; speedup vs " << speedup_baseline;
+
+    // Columns size themselves to the widest cell (name or digit count), so a
+    // long component name never spills into the next column. The +1 keeps a
+    // visible gap between columns even when a cell exactly fills its width.
+    std::size_t name_w = std::string("component").size();
+    std::size_t before_w = std::string("cycles before").size();
+    std::size_t after_w = std::string("cycles after").size();
+    for (const Row& r : rows) {
+        name_w = std::max(name_w, r.name.size());
+        before_w = std::max(before_w, std::to_string(r.cycles_before).size());
+        after_w = std::max(after_w, std::to_string(r.cycles_after).size());
+    }
     std::cout << "):\n"
-              << "  " << std::left << std::setw(18) << "component"
-              << std::setw(15) << "cycles before" << std::setw(14) << "cycles after"
+              << "  " << std::left << std::setw(static_cast<int>(name_w) + 1) << "component"
+              << std::setw(static_cast<int>(before_w) + 1) << "cycles before"
+              << std::setw(static_cast<int>(after_w) + 1) << "cycles after"
               << "speedup\n";
     for (const Row& r : rows) {
         std::ostringstream speed;
         speed << std::fixed << std::setprecision(2) << r.speedup << "x";
-        std::cout << "  " << std::setw(18) << r.name << std::setw(15) << r.cycles_before
-                  << std::setw(14) << r.cycles_after << speed.str() << '\n';
+        std::cout << "  " << std::left << std::setw(static_cast<int>(name_w) + 1) << r.name
+                  << std::setw(static_cast<int>(before_w) + 1) << r.cycles_before
+                  << std::setw(static_cast<int>(after_w) + 1) << r.cycles_after << speed.str()
+                  << '\n';
     }
 }
 
@@ -311,6 +329,7 @@ int main(int argc, char** argv) {
     std::string elf_path = "../files/output/sample.elf";
     std::string predictor_name = std::string(TwoBitSaturatingPredictor::kName);
     std::string icache_name = std::string(FullyAssociativeICache::kName);
+    std::string dcache_name = std::string(L1L2Cache::kName);
     std::vector<ParamOverride> overrides;
     PipelineModel pipeline;
     bool comparison_mode = false;
@@ -335,6 +354,13 @@ int main(int argc, char** argv) {
                 return 1;
             }
             icache_name = argv[++i];
+        } else if (arg == "--dcache") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --dcache requires a data-cache name "
+                             "(--list)\n";
+                return 1;
+            }
+            dcache_name = argv[++i];
         } else if (arg == "--comparison") {
             // Requires a component or type name: the comparison never
             // defaults to a type, so a bare --comparison (or an ELF path
@@ -426,7 +452,9 @@ int main(int argc, char** argv) {
     // Fail fast on overrides that cannot apply in this mode (unknown target
     // component, mismatch with the active components, unknown parameter, bad
     // value).
-    if (!validate_overrides(overrides, comparison_mode, predictor_name, icache_name)) return 1;
+    if (!validate_overrides(overrides, comparison_mode, predictor_name, icache_name,
+                            dcache_name))
+        return 1;
 
     try {
         std::unique_ptr<Component> predictor_component;
@@ -466,6 +494,25 @@ int main(int argc, char** argv) {
             apply_overrides(*icache, overrides);
         }
 
+        // The active data-cache design, selected with --dcache (default the
+        // L1+L2 hierarchy); only used for the report section.
+        std::unique_ptr<Component> dcache_component;
+        L1L2Cache* dcache = nullptr;
+        if (!comparison_mode) {
+            dcache_component = make_component(dcache_name);
+            dcache = dynamic_cast<L1L2Cache*>(dcache_component.get());
+            if (dcache == nullptr) {
+                std::cerr << "RISC-E error: unknown data cache \"" << dcache_name
+                          << "\"; available caches:";
+                for (const std::string_view name : component_names("cache")) {
+                    std::cerr << " " << name;
+                }
+                std::cerr << '\n';
+                return 1;
+            }
+            apply_overrides(*dcache, overrides);
+        }
+
         TempFileGuard temp_files;
         const std::string load_path =
             is_source_file(elf_path) ? compile_source(elf_path, temp_files) : elf_path;
@@ -482,6 +529,7 @@ int main(int argc, char** argv) {
         ctx.branch_stats = &interpreter.branch_stats();
         ctx.pipeline = &pipeline;
         ctx.profile_stats = &interpreter.profile_stats();
+        ctx.access_trace = &interpreter.access_trace();
 
         if (comparison_mode) {
             print_comparison_table(comparison_type, comparison_only, ctx, overrides);
@@ -494,6 +542,9 @@ int main(int argc, char** argv) {
             std::cout << '\n';
             std::cout << icache->report_title() << '\n';
             icache->report(std::cout, ctx);
+            std::cout << '\n';
+            std::cout << dcache->report_title() << '\n';
+            dcache->report(std::cout, ctx);
             std::cout << '\n';
         }
 
