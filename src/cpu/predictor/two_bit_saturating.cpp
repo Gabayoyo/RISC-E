@@ -1,4 +1,4 @@
-#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
+#include "risc-e/cpu/predictor/two_bit_saturating.hpp"
 
 #include <algorithm>
 #include <stdexcept>

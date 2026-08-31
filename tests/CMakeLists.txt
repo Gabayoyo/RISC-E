@@ -16,9 +16,9 @@ add_executable(harness_test harness_test.cpp)
 target_link_libraries(harness_test PRIVATE risc-e-core)
 add_test(NAME harness_test COMMAND harness_test)
 
-add_executable(profile_test profile_test.cpp)
-target_link_libraries(profile_test PRIVATE risc-e-core)
-add_test(NAME profile_test COMMAND profile_test)
+add_executable(icache_test icache_test.cpp)
+target_link_libraries(icache_test PRIVATE risc-e-core)
+add_test(NAME icache_test COMMAND icache_test)
 
 # Integration tests: RISC-V test programs compiled with a cross-compiler.
 # When no RISC-V GCC is on PATH these tests are skipped.
@@ -146,9 +146,9 @@ if(RISCV_GCC)
     set_tests_properties(branch_stats_always_not_taken
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2")
 
-    add_test(NAME comparison_all_predictors
+    add_test(NAME comparison_all_
              COMMAND risc-e --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(comparison_all_predictors
+    set_tests_properties(comparison_all_
                          PROPERTIES PASS_REGULAR_EXPRESSION "two-bit")
 
     add_test(NAME comparison_cycles
@@ -175,33 +175,43 @@ if(RISCV_GCC)
     add_test(NAME pipeline_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_stats PROPERTIES PASS_REGULAR_EXPRESSION "pipeline")
 
-    add_test(NAME profile_report COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_report
+    add_test(NAME icache_report COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(icache_report
                          PROPERTIES PASS_REGULAR_EXPRESSION "basic blocks: 5")
 
-    add_test(NAME profile_report_numbers COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_report_numbers
+    add_test(NAME icache_report_numbers COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(icache_report_numbers
                          PROPERTIES PASS_REGULAR_EXPRESSION "instructions executed: 16")
 
-    add_test(NAME profile_comparison COMMAND risc-e --comparison icache
+    add_test(NAME icache_comparison COMMAND risc-e --comparison icache
              ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_comparison
-                         PROPERTIES PASS_REGULAR_EXPRESSION "icache.*1.56x")
+    set_tests_properties(icache_comparison
+                         PROPERTIES PASS_REGULAR_EXPRESSION
+                                     "icache-fa.*3.59x|icache-plru.*3.59x")
 
-    add_test(NAME profile_cache COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_cache
-                         PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 150 \\(36.06%\\)")
+    add_test(NAME icache_cache COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(icache_cache
+                         PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 300 \\(72.12%\\)")
 
-    add_test(NAME profile_cache_param COMMAND risc-e --param icache.miss-penalty=100
+    add_test(NAME icache_cache_param COMMAND risc-e --param icache-fa.miss-penalty=100
              ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_cache_param
-                         PROPERTIES PASS_REGULAR_EXPRESSION "miss stalls: 500")
+    set_tests_properties(icache_cache_param
+                         PROPERTIES PASS_REGULAR_EXPRESSION "miss stalls: 200")
 
-    add_test(NAME profile_eviction
-             COMMAND risc-e --param icache.cache-capacity=4
+    add_test(NAME icache_eviction
+             COMMAND risc-e --param icache-fa.ways=1
                      ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(profile_eviction
-                         PROPERTIES PASS_REGULAR_EXPRESSION "evictions: 3")
+    set_tests_properties(icache_eviction
+                         PROPERTIES PASS_REGULAR_EXPRESSION "evictions: 1")
+
+    add_test(NAME icache_select COMMAND risc-e --icache icache-plru
+             ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(icache_select
+                         PROPERTIES PASS_REGULAR_EXPRESSION "PLRU")
+
+    add_test(NAME icache_select_unknown COMMAND risc-e --icache icache-nope
+             ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(icache_select_unknown PROPERTIES WILL_FAIL TRUE)
 
     add_test(NAME pipeline_penalty_5stage
              COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
@@ -228,8 +238,8 @@ if(RISCV_GCC)
                      ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(unknown_param_rejected PROPERTIES WILL_FAIL TRUE)
 
-    add_test(NAME list_predictors COMMAND risc-e --list-predictors)
-    set_tests_properties(list_predictors PROPERTIES PASS_REGULAR_EXPRESSION "history-bits=12")
+    add_test(NAME list_ COMMAND risc-e --list-)
+    set_tests_properties(list_ PROPERTIES PASS_REGULAR_EXPRESSION "history-bits=12")
 
     add_test(NAME list_components COMMAND risc-e --list)
     set_tests_properties(list_components PROPERTIES PASS_REGULAR_EXPRESSION "pipeline:")
@@ -238,7 +248,7 @@ if(RISCV_GCC)
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_param PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
-    add_test(NAME list_predictor_detail COMMAND risc-e --list-predictors gshare)
+    add_test(NAME list_predictor_detail COMMAND risc-e --list- gshare)
     set_tests_properties(list_predictor_detail
                          PROPERTIES PASS_REGULAR_EXPRESSION "pattern-history")
 endif()

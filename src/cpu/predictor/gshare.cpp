@@ -1,4 +1,4 @@
-#include "risc-e/cpu/predictors/gshare.hpp"
+#include "risc-e/cpu/predictor/gshare.hpp"
 
 #include <algorithm>
 #include <stdexcept>

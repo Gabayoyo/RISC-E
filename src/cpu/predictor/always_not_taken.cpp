@@ -1,4 +1,4 @@
-#include "risc-e/cpu/predictors/always_not_taken.hpp"
+#include "risc-e/cpu/predictor/always_not_taken.hpp"
 
 Prediction AlwaysNotTakenPredictor::predict(const BranchContext& ctx) const {
     // Direct jumps are unconditional; predict their encoded target.

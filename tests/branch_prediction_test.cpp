@@ -1,11 +1,11 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/predictors/always_not_taken.hpp"
-#include "risc-e/cpu/predictors/gshare.hpp"
-#include "risc-e/cpu/predictors/ras.hpp"
-#include "risc-e/cpu/predictors/tournament.hpp"
-#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
+#include "risc-e/cpu/predictor/always_not_taken.hpp"
+#include "risc-e/cpu/predictor/gshare.hpp"
+#include "risc-e/cpu/predictor/ras.hpp"
+#include "risc-e/cpu/predictor/tournament.hpp"
+#include "risc-e/cpu/predictor/two_bit_saturating.hpp"
 #include "risc-e/cpu/return_address_stack.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/harness/registry.hpp"
@@ -125,7 +125,7 @@ void test_ras() {
     expect(stats.indirect_hits == 1 && stats.indirect_misses == 0, "ras JALR: return hit");
 }
 
-void test_parameterized_predictors() {
+void test_parameterized_() {
     // Without a RAS the indirect return misses again.
     GsharePredictor gshare(4, 0);
     const auto [gs, gs_code] = run_with(gshare);
@@ -174,7 +174,7 @@ void test_factory() {
     expect(make_component("bogus") == nullptr, "unknown predictor names are rejected");
 
     const std::vector<std::string_view> names = component_names("predictor");
-    expect(names.size() == 5, "five predictors registered");
+    expect(names.size() == 5, "five  registered");
     for (std::string_view name : names) {
         expect(make_component(name) != nullptr, "every registered name constructs a predictor");
     }
@@ -244,7 +244,7 @@ int main() {
     test_gshare();
     test_tournament();
     test_ras();
-    test_parameterized_predictors();
+    test_parameterized_();
     test_return_address_stack();
     test_factory();
     test_parameters();

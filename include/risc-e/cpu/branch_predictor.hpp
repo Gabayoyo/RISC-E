@@ -65,7 +65,7 @@ struct Resolution {
     uint32_t next_pc = 0;
 };
 
-// Abstract contract for any branch predictor, and a Component: predictors plug
+// Abstract contract for any branch predictor, and a Component:  plug
 // into the shared harness (tunables, report section, comparison) while keeping
 // their own components (BTB, RAS, direction tables, ...) private.
 class BranchPredictor : public Component {

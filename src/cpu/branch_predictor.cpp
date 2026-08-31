@@ -2,7 +2,7 @@
 
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/predictors/always_not_taken.hpp"
+#include "risc-e/cpu/predictor/always_not_taken.hpp"
 #include "risc-e/harness/run_context.hpp"
 
 #include <ostream>

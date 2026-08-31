@@ -41,12 +41,15 @@ exit code.
   report stays source-agnostic (no predictor names, worst-case baseline).
 - **Dynamic profiling** — identifies basic blocks at run time (interned IDs
   keyed by entry PC, with execution and instruction counts) plus the static
-  distinct-instruction footprint. A simulated instruction cache then prices
-  the run's fetches — hits vs. misses with LRU eviction — and reports cycles
-  saved. Reported as its own section and comparable via
-  `--comparison icache`.
-- **Components** — predictors and the pipeline model plug into one harness
-  interface: tunables (`--param`), a report section, and within-type
+  distinct-instruction footprint.
+- **Instruction caches** — four swappable designs over the same profile:
+  `icache-fa` (fully associative, LRU), `icache-setassoc` (set associative,
+  LRU; direct-mapped = 1 way), `icache-plru` (set associative, pseudo-LRU),
+  and `icache-prefetch` (set associative + next-line prefetch). Each prices
+  the run's fetches in cycles and reports hits/misses/evictions; select one
+  with `--icache`, compare all with `--comparison icache`.
+- **Components** — predictors, the pipeline, and the caches plug into one
+  harness interface: tunables (`--param`), a report section, and within-type
   comparison. Memory and other component types slot in the same way.
 
 ## Build
@@ -76,8 +79,8 @@ The program's exit status is printed, and the process exits with the same code.
 
 Every run prints three report sections — **branch prediction** (predictor name,
 hit/miss rate and counts, branches scored), **pipeline** (the cycle cost of the
-run under a configurable pipeline model), and **profile** (block and
-instruction-cache statistics):
+run under a configurable pipeline model), and **icache** (block statistics
+plus the selected cache design's hits, misses and cycles):
 
 ```
 branch prediction
@@ -98,19 +101,21 @@ pipeline
   slowdown: +12.50% vs perfect
   cycles saved: 12 vs worst-case (7 stall events)
 
-profile
+icache
   instructions executed: 16
   distinct instructions: 8
   basic blocks: 5
-  instruction cache (miss penalty 50, cache 64 instrs):
-    hits: 3 (37.50%)
-    misses: 5
-    compulsory misses: 5
+  instruction cache (miss penalty 50, line 16 B, 1 set x 16 ways, LRU):
+    hits: 6 (75.00%)
+    misses: 2
+    compulsory misses: 2
+    conflict misses: 0
+    capacity misses: 0
     evictions: 0
-    miss stalls: 250 (5 x 50 cycles)
-    total cycles: 266
+    miss stalls: 100 (2 x 50 cycles)
+    total cycles: 116
     no-cache baseline: 416
-    cycles saved: 150 (36.06%)
+    cycles saved: 300 (72.12%)
 
 exit code: 7
 ```
@@ -120,17 +125,18 @@ transfer lands (program entry, branch/jump targets, not-taken fall-through).
 A block first reached by fall-through that later becomes a jump target is
 split on its first back-edge, so that first trip counts toward the
 predecessor block. The instruction-cache section is a microarchitectural
-model: blocks are the cache lines, fetched on first touch (compulsory miss),
-hitting while resident, and missing again after LRU eviction when the cache
-(`cache-capacity` instructions, `0` = unlimited) is too small. Each miss
-stalls the fetch stage for `miss-penalty` cycles, and cycles saved is
-measured against a machine with no instruction cache at all.
+model: blocks are fetched as units, fixed-size lines (default 16 B) hold the
+code, a fetch hits iff every line it spans is resident, and each miss stalls
+the fetch stage for `miss-penalty` cycles. Cycles saved is measured against a
+machine with no instruction cache at all. The active design is selected with
+`--icache` (default `icache-fa`).
 
 ### CLI reference
 
 | Flag | Value | Effect |
 | --- | --- | --- |
 | `--predictor <name>` | `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras` | Select the branch predictor. |
+| `--icache <name>` | `icache-fa` (default), `icache-setassoc`, `icache-plru`, `icache-prefetch` | Select the instruction-cache design. |
 | `--param <c>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a component tunable; repeatable. |
 | `--pipeline-stages <N>` | integer ≥ 1 (default `5`) | Pipeline depth; the derived penalty grows with depth. |
 | `--stall-penalty <N>` | non-negative integer | Override the per-stall-event penalty directly. |
@@ -140,6 +146,7 @@ measured against a machine with no instruction cache at all.
 ```sh
 cd out && ./build/preset/risc-e path/to/program.elf
 cd out && ./build/preset/risc-e --predictor gshare path/to/program.elf
+cd out && ./build/preset/risc-e --icache icache-plru path/to/program.elf
 cd out && ./build/preset/risc-e --list
 ```
 
@@ -152,8 +159,11 @@ predictor:
   ras [ras-depth=16]
 pipeline:
   pipeline [stages=5, stall-penalty=0]
-profile:
-  icache [miss-penalty=50, cache-capacity=64]
+icache:
+  icache-fa [miss-penalty=50, line-size=16, ways=16]
+  icache-setassoc [miss-penalty=50, line-size=16, sets=16, ways=4]
+  icache-plru [miss-penalty=50, line-size=16, sets=16, ways=4]
+  icache-prefetch [miss-penalty=50, line-size=16, sets=16, ways=4]
 ```
 
 `--comparison` requires a component or type name (it never defaults to a
@@ -179,7 +189,7 @@ comparison (7 events, 5-stage pipeline (2-cycle stall penalty); speedup vs no pr
 ```
 
 The speedup baseline is a property of each type's cost model (`no prediction`
-for predictors, `no instruction cache` for the profile, `stall-free` for the
+for predictors, `no instruction cache` for the caches, `stall-free` for the
 pipeline), so the columns are comparable within a type but never across
 types. This is comparison-only: the per-run `report()` sections still print
 the full stats for every component.
@@ -219,30 +229,42 @@ only on the run, not on any predictor or policy.
 
 ### Instruction cache
 
-The profile section simulates a small instruction cache over the run's block
-entries: blocks are the cache lines, fetched on first touch (compulsory
-miss), hitting while resident, and missing again after eviction. A miss
-stalls the fetch stage for `miss-penalty` cycles (default 50); the cache
-holds `cache-capacity` instructions (default 64, `0` = unlimited). When a new
-block does not fit, the least-recently-used block is evicted, so a block
-re-entered after eviction misses again — a capacity miss. **Cycles saved** is
-measured against a machine with no instruction cache, where every entry
-misses.
+The icache section simulates an instruction cache over the run's block
+entries. Blocks are the fetch units, but storage is in fixed-size lines
+(default 16 B = 4 RV32I instructions): a fetch hits iff every line it spans
+is resident, and a miss stalls the fetch stage for `miss-penalty` cycles
+(default 50) while the missing lines are refilled. Misses are classified as
+compulsory (first demand), conflict (re-entry under set pressure), or
+capacity (re-entry in a fully associative cache). Four designs are built in,
+differing on one axis each:
 
-The numbers are tunable rather than measured — a smaller cache forces
-eviction, and the miss penalty scales the cost:
+| design | identity | tunables (defaults) |
+|---|---|---|
+| `icache-fa` | fully associative, LRU | `miss-penalty`, `line-size`, `ways`=16 |
+| `icache-setassoc` | set associative, LRU | `miss-penalty`, `line-size`, `sets`=16, `ways`=4 |
+| `icache-plru` | set associative, pseudo-LRU (power-of-two `ways`) | same as setassoc |
+| `icache-prefetch` | set associative + next-line prefetch | same as setassoc |
+
+Select the active design with `--icache` (default `icache-fa`). The numbers
+are tunable rather than measured — a smaller cache forces eviction, a
+direct-mapped cache (`ways=1`) shows conflict misses, and the miss penalty
+scales the cost:
 
 ```sh
-cd out && ./build/preset/risc-e --param icache.cache-capacity=8 path/to/program.elf
-cd out && ./build/preset/risc-e --param icache.miss-penalty=100 path/to/program.elf
+cd out && ./build/preset/risc-e --icache icache-setassoc path/to/program.elf
+cd out && ./build/preset/risc-e --param icache-setassoc.ways=1 path/to/program.elf
+cd out && ./build/preset/risc-e --param icache-plru.ways=8 path/to/program.elf
+cd out && ./build/preset/risc-e --param icache-fa.miss-penalty=100 path/to/program.elf
 ```
 
-On `branch_loops.c` the default model reports a 95.65% hit rate and 80.62%
-cycles saved: the two hot loops stay resident, so only the nine compulsory
+On `branch_loops.c` the default model reports a 96.14% hit rate and 81.03%
+cycles saved: the two hot loops stay resident, so only the eight compulsory
 misses stall.
 
-`--comparison icache` compares on the same three columns as every other
-type: cycles before (no instruction cache), cycles after, and speedup.
+`--comparison icache` compares all four on the same three columns as every
+other type: cycles before (no instruction cache), cycles after, and speedup —
+so the effect of associativity, replacement policy, and prefetching shows up
+directly.
 
 ## Adding a component
 
@@ -286,7 +308,7 @@ The type's base class (`BranchPredictor`) is part of the registration, so a
 
 ### Adding a new type
 
-If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks. The `icache` profile component is a live example of a type with a single implementation: `ProfileComponent` extends `Component`, records nothing itself, and only renders the stats the interpreter collected during the run (see `include/risc-e/cpu/profile.hpp`):
+If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks. The four instruction caches are the live example of a type with shared implementations: `ICacheComponent` implements `report()` and `cycle_cost()` once, and each design in `include/risc-e/cpu/icache/` only declares its name, defaults, and tunables — a new policy is one small class:
 
 ```cpp
 class MyMemoryBase : public Component {
@@ -345,7 +367,8 @@ its type's base class (and `Component`).
 ```
 include/risc-e/   public headers
   cpu/                CPU state, traps, branch stats, the predictor
-                      interface, pipeline model, dynamic profile, predictors/
+                      interface, pipeline model, profile recording, icache
+                      base, predictor/ and icache/ implementations
   decoder/            instruction decoding and opcode constants
   elf/                ELF loading
   interpreter/        the interpreter

@@ -1,13 +1,17 @@
 #include "risc-e/harness/registry.hpp"
 
 #include "risc-e/cpu/branch_predictor.hpp"
+#include "risc-e/cpu/icache.hpp"
+#include "risc-e/cpu/icache/fully_associative.hpp"
+#include "risc-e/cpu/icache/prefetch.hpp"
+#include "risc-e/cpu/icache/pseudo_lru.hpp"
+#include "risc-e/cpu/icache/set_associative.hpp"
 #include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/profile.hpp"
-#include "risc-e/cpu/predictors/always_not_taken.hpp"
-#include "risc-e/cpu/predictors/gshare.hpp"
-#include "risc-e/cpu/predictors/ras.hpp"
-#include "risc-e/cpu/predictors/tournament.hpp"
-#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
+#include "risc-e/cpu/predictor/always_not_taken.hpp"
+#include "risc-e/cpu/predictor/gshare.hpp"
+#include "risc-e/cpu/predictor/ras.hpp"
+#include "risc-e/cpu/predictor/tournament.hpp"
+#include "risc-e/cpu/predictor/two_bit_saturating.hpp"
 
 #include <memory>
 #include <string_view>
@@ -41,7 +45,7 @@ void register_all() {
 
     register_type("predictor");
     register_type("pipeline");
-    register_type("profile");
+    register_type("icache");
 
     register_component<BranchPredictor, TwoBitSaturatingPredictor>(
         "predictor", TwoBitSaturatingPredictor::kName,
@@ -61,9 +65,18 @@ void register_all() {
     register_component<PipelineModel, PipelineModel>(
         "pipeline", PipelineModel::kName,
         []() -> std::unique_ptr<Component> { return std::make_unique<PipelineModel>(); });
-    register_component<ProfileComponent, ProfileComponent>(
-        "profile", ProfileComponent::kName,
-        []() -> std::unique_ptr<Component> { return std::make_unique<ProfileComponent>(); });
+    register_component<ICacheComponent, FullyAssociativeICache>(
+        "icache", FullyAssociativeICache::kName,
+        []() -> std::unique_ptr<Component> { return std::make_unique<FullyAssociativeICache>(); });
+    register_component<ICacheComponent, SetAssociativeICache>(
+        "icache", SetAssociativeICache::kName,
+        []() -> std::unique_ptr<Component> { return std::make_unique<SetAssociativeICache>(); });
+    register_component<ICacheComponent, PseudoLruICache>(
+        "icache", PseudoLruICache::kName,
+        []() -> std::unique_ptr<Component> { return std::make_unique<PseudoLruICache>(); });
+    register_component<ICacheComponent, PrefetchICache>(
+        "icache", PrefetchICache::kName,
+        []() -> std::unique_ptr<Component> { return std::make_unique<PrefetchICache>(); });
 }
 
 } // namespace

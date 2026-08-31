@@ -27,7 +27,7 @@ int main() {
     // Types are declared at the type level, in registration order.
     const std::vector<std::string_view> types = component_types();
     expect(types.size() == 3 && types[0] == "predictor" && types[1] == "pipeline" &&
-               types[2] == "profile",
+               types[2] == "icache",
            "types register in declaration order");
 
     // Registry: construction and unknown-name rejection.

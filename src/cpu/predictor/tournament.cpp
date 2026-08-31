@@ -1,4 +1,4 @@
-#include "risc-e/cpu/predictors/tournament.hpp"
+#include "risc-e/cpu/predictor/tournament.hpp"
 
 #include <algorithm>
 #include <stdexcept>

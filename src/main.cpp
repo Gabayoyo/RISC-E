@@ -1,8 +1,9 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/icache.hpp"
+#include "risc-e/cpu/icache/fully_associative.hpp"
 #include "risc-e/cpu/pipeline.hpp"
-#include "risc-e/cpu/profile.hpp"
-#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
+#include "risc-e/cpu/predictor/two_bit_saturating.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/harness/component.hpp"
 #include "risc-e/harness/registry.hpp"
@@ -160,7 +161,7 @@ void apply_overrides(Component& component, const std::vector<ParamOverride>& ove
 // accepts the parameter and value. Returns false after reporting the first
 // problem.
 bool validate_overrides(const std::vector<ParamOverride>& overrides, bool comparison_mode,
-                        const std::string& predictor_name) {
+                        const std::string& predictor_name, const std::string& icache_name) {
     for (const ParamOverride& o : overrides) {
         auto comp = make_component(o.component);
         if (comp == nullptr) {
@@ -169,8 +170,7 @@ bool validate_overrides(const std::vector<ParamOverride>& overrides, bool compar
             return false;
         }
         if (!comparison_mode && o.component != predictor_name &&
-            o.component != PipelineModel::kName &&
-            o.component != ProfileComponent::kName) {
+            o.component != PipelineModel::kName && o.component != icache_name) {
             std::cerr << "RISC-E error: --param \"" << o.component << "." << o.name
                       << "\" targets \"" << o.component << "\", which is not active in this run"
                       << " (--predictor selected \"" << predictor_name << "\")\n";
@@ -310,6 +310,7 @@ void print_comparison_table(std::string_view type, const std::string& only,
 int main(int argc, char** argv) {
     std::string elf_path = "../files/output/sample.elf";
     std::string predictor_name = std::string(TwoBitSaturatingPredictor::kName);
+    std::string icache_name = std::string(FullyAssociativeICache::kName);
     std::vector<ParamOverride> overrides;
     PipelineModel pipeline;
     bool comparison_mode = false;
@@ -327,6 +328,13 @@ int main(int argc, char** argv) {
             }
             predictor_name = argv[++i];
             saw_predictor = true;
+        } else if (arg == "--icache") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --icache requires an instruction-cache name "
+                             "(--list)\n";
+                return 1;
+            }
+            icache_name = argv[++i];
         } else if (arg == "--comparison") {
             // Requires a component or type name: the comparison never
             // defaults to a type, so a bare --comparison (or an ELF path
@@ -380,7 +388,7 @@ int main(int argc, char** argv) {
             pipeline.stall_penalty = static_cast<int>(*penalty);
         } else if (arg == "--param") {
             // arch: --param is component-namespaced ("<component>.<tunable>=<value>").
-            // Predictors and the pipeline register today; memory and other
+            //  and the pipeline register today; memory and other
             // component types reuse the same syntax and ParamSpec machinery.
             if (i + 1 >= argc) {
                 std::cerr << "RISC-E error: --param requires <component>.<parameter>=<value>, "
@@ -400,7 +408,7 @@ int main(int argc, char** argv) {
             o.name      = spec.substr(dot + 1, eq - dot - 1);
             o.value     = spec.substr(eq + 1);
             overrides.push_back(std::move(o));
-        } else if (arg == "--list" || arg == "--list-predictors") {
+        } else if (arg == "--list" || arg == "--list-") {
             std::string detail;
             if (i + 1 < argc && argv[i + 1][0] != '-') detail = argv[++i];
             return print_component_list(detail) ? 0 : 1;
@@ -418,7 +426,7 @@ int main(int argc, char** argv) {
     // Fail fast on overrides that cannot apply in this mode (unknown target
     // component, mismatch with the active components, unknown parameter, bad
     // value).
-    if (!validate_overrides(overrides, comparison_mode, predictor_name)) return 1;
+    if (!validate_overrides(overrides, comparison_mode, predictor_name, icache_name)) return 1;
 
     try {
         std::unique_ptr<Component> predictor_component;
@@ -428,7 +436,7 @@ int main(int argc, char** argv) {
             predictor = dynamic_cast<BranchPredictor*>(predictor_component.get());
             if (predictor == nullptr) {
                 std::cerr << "RISC-E error: unknown predictor \"" << predictor_name
-                          << "\"; available predictors:";
+                          << "\"; available :";
                 for (const std::string_view name : component_names("predictor")) {
                     std::cerr << " " << name;
                 }
@@ -439,8 +447,24 @@ int main(int argc, char** argv) {
         }
         apply_overrides(pipeline, overrides);
 
-        ProfileComponent profile;
-        apply_overrides(profile, overrides);
+        // The active instruction-cache design, selected with --icache
+        // (default fully associative); only used for the report section.
+        std::unique_ptr<Component> icache_component;
+        ICacheComponent* icache = nullptr;
+        if (!comparison_mode) {
+            icache_component = make_component(icache_name);
+            icache = dynamic_cast<ICacheComponent*>(icache_component.get());
+            if (icache == nullptr) {
+                std::cerr << "RISC-E error: unknown instruction cache \"" << icache_name
+                          << "\"; available caches:";
+                for (const std::string_view name : component_names("icache")) {
+                    std::cerr << " " << name;
+                }
+                std::cerr << '\n';
+                return 1;
+            }
+            apply_overrides(*icache, overrides);
+        }
 
         TempFileGuard temp_files;
         const std::string load_path =
@@ -468,8 +492,8 @@ int main(int argc, char** argv) {
             std::cout << pipeline.report_title() << '\n';
             pipeline.report(std::cout, ctx);
             std::cout << '\n';
-            std::cout << profile.report_title() << '\n';
-            profile.report(std::cout, ctx);
+            std::cout << icache->report_title() << '\n';
+            icache->report(std::cout, ctx);
             std::cout << '\n';
         }
 
