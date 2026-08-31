@@ -1,10 +1,13 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/pipeline.hpp"
 #include "risc-e/cpu/predictors/two_bit_saturating.hpp"
 #include "risc-e/cpu/return_address_stack.hpp"
-#include "risc-e/decoder/decoder.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
+#include "risc-e/report/branch_section.hpp"
+#include "risc-e/report/pipeline_section.hpp"
+#include "risc-e/report/report_section.hpp"
 
 #include "runtime_files.hpp"
 
@@ -12,9 +15,11 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -139,25 +144,13 @@ const char* halt_reason_name(HaltReason reason) {
     }
 }
 
-void print_branch_stats(const BranchStats& stats, const BranchPredictor* predictor) {
-    static const char* kTypeNames[8] = {"BEQ", "BNE", "?", "?", "BLT", "BGE", "BLTU", "BGEU"};
-
-    std::cout << "branch stats:\n"
-              << "  conditional branches: " << stats.total
-              << " (taken: " << stats.taken
-              << ", not taken: " << stats.not_taken << ")\n";
-    for (int i = 0; i < 8; ++i) {
-        if (stats.type_total[i] == 0) continue;
-        std::cout << "  " << kTypeNames[i] << ": " << stats.type_taken[i]
-                  << "/" << stats.type_total[i] << " taken\n";
-    }
-    if (predictor != nullptr) {
-        std::cout << "  predictor: " << predictor->name() << "\n"
-                  << "  control transfers: " << stats.control_total << "\n"
-                  << "  hits: " << stats.hits << ", misses: " << stats.misses
-                  << ", hit rate: " << stats.hit_rate() << "%\n"
-                  << "  conditional hit rate: " << stats.conditional_hit_rate() << "%\n"
-                  << "  indirect (JALR) hit rate: " << stats.indirect_hit_rate() << "%\n";
+// Prints a report composed of named sections, each separated by a blank line.
+// New breakdowns are added by pushing another ReportSection into the vector.
+void print_report(const std::vector<std::unique_ptr<ReportSection>>& sections) {
+    for (const auto& section : sections) {
+        std::cout << section->title() << '\n';
+        section->render(std::cout);
+        std::cout << '\n';
     }
 }
 
@@ -204,29 +197,35 @@ bool validate_overrides(const std::vector<ParamOverride>& overrides, bool replay
     return true;
 }
 
-// Replays a recorded control-flow trace through every available predictor and
-// prints a comparison table. Reuses the same accounting as live execution.
+// Replays a recorded control-flow trace through every available predictor (or
+// just `only_predictor` when non-empty) and prints a comparison table,
+// including each predictor's cycle cost under the configured pipeline model.
+// Reuses the same accounting as live execution.
 void print_replay_results(const std::vector<BranchRecord>& trace,
-                          const std::vector<ParamOverride>& overrides) {
+                          const std::vector<ParamOverride>& overrides,
+                          const PipelineModel& pipeline, uint64_t inst_count,
+                          const std::string& only_predictor = "") {
     if (trace.empty()) {
-        std::cout << "replay: no control transfers recorded\n";
+        std::cout << "comparison: no control transfers recorded\n";
         return;
     }
-    std::cout << "replay results (" << trace.size() << " control transfers):\n";
+    std::cout << "comparison (" << trace.size() << " branches, " << pipeline.description() << "):\n"
+              << "  " << std::left << std::setw(18) << "predictor" << std::setw(10) << "hits"
+              << std::setw(12) << "hit rate" << "cycles\n";
     for (const std::string_view name : predictor_names()) {
+        if (!only_predictor.empty() && name != only_predictor) continue;
         auto predictor = make_predictor(name);
         apply_overrides(*predictor, overrides);  // validated in main, cannot fail here
-        BranchStats stats;
-        for (const BranchRecord& rec : trace) {
-            const DecodedInstruction d = decode_raw_inst(rec.raw, rec.pc);
-            const BranchContext ctx = BranchContext::from_decoded(d);
-            record_control_transfer(stats, predictor.get(), ctx, rec.taken, rec.target);
-        }
-        std::cout << "  " << name << ": " << stats.hits << "/" << stats.control_total
-                  << " hits (" << stats.hit_rate() << "%), cond " << stats.cond_hits << "/"
-                  << (stats.cond_hits + stats.cond_misses) << ", indirect "
-                  << stats.indirect_hits << "/" << (stats.indirect_hits + stats.indirect_misses)
-                  << '\n';
+        const BranchStats stats = replay_trace(trace, *predictor);
+
+        std::ostringstream rate;
+        rate << std::fixed << std::setprecision(2) << stats.hit_rate() << "%";
+        const uint64_t cycles =
+            compute_pipeline_stats(inst_count, stats.misses, pipeline).total_cycles;
+
+        std::cout << "  " << std::left << std::setw(18) << name << std::setw(10)
+                  << (std::to_string(stats.hits) + "/" + std::to_string(stats.control_total))
+                  << std::setw(12) << rate.str() << cycles << '\n';
     }
 }
 
@@ -278,8 +277,10 @@ int main(int argc, char** argv) {
     std::string elf_path = "../files/output/sample.elf";
     std::string predictor_name = std::string(TwoBitSaturatingPredictor::kName);
     std::vector<ParamOverride> overrides;
+    PipelineModel pipeline;
     bool replay = false;
     bool saw_predictor = false;
+    std::string comparison_predictor;  // optional --comparison <name> filter
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -291,9 +292,48 @@ int main(int argc, char** argv) {
             }
             predictor_name = argv[++i];
             saw_predictor = true;
-        } else if (arg == "--replay") {
+        } else if (arg == "--comparison") {
             replay = true;
+            // Optional argument: compare just one predictor. Only consume the
+            // next token when it names a known predictor, so an ELF path
+            // following --comparison is never mistaken for a component name.
+            if (i + 1 < argc && make_predictor(argv[i + 1]) != nullptr) {
+                comparison_predictor = argv[++i];
+            }
+        } else if (arg == "--pipeline-stages") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --pipeline-stages requires the number of stages "
+                             "(default 5)\n";
+                return 1;
+            }
+            const std::string value = argv[++i];
+            std::string error;
+            const std::optional<long> stages = parse_parameter_value(value, error);
+            if (!stages.has_value() || *stages < 1) {
+                std::cerr << "RISC-E error: --pipeline-stages expects an integer >= 1 (got \""
+                          << value << "\")\n";
+                return 1;
+            }
+            pipeline.stages = static_cast<int>(*stages);
+        } else if (arg == "--mispredict-penalty") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --mispredict-penalty requires a penalty in cycles "
+                             "(default derived from the pipeline depth)\n";
+                return 1;
+            }
+            const std::string value = argv[++i];
+            std::string error;
+            const std::optional<long> penalty = parse_parameter_value(value, error);
+            if (!penalty.has_value()) {
+                std::cerr << "RISC-E error: --mispredict-penalty expects a non-negative integer "
+                             "(got \"" << value << "\")\n";
+                return 1;
+            }
+            pipeline.mispredict_penalty = static_cast<int>(*penalty);
         } else if (arg == "--param") {
+            // arch: --param is already component-namespaced ("<component>.<tunable>=<value>",
+            // component == predictor name today). Future components (memory, pipeline, ...)
+            // can reuse the same syntax and ParamSpec machinery without CLI changes.
             if (i + 1 >= argc) {
                 std::cerr << "RISC-E error: --param requires <predictor>.<parameter>=<value>, "
                              "e.g. gshare.history-bits=14\n";
@@ -323,8 +363,8 @@ int main(int argc, char** argv) {
     }
 
     if (replay && saw_predictor) {
-        std::cerr << "RISC-E error: --replay replays every predictor and cannot be combined "
-                     "with --predictor\n";
+        std::cerr << "RISC-E error: --comparison compares predictors and cannot be combined "
+                     "with --predictor; use --comparison <name> to select one\n";
         return 1;
     }
 
@@ -359,10 +399,17 @@ int main(int argc, char** argv) {
 
         std::optional<uint32_t> exit_code = interpreter.run();
 
-        print_branch_stats(interpreter.branch_stats(), predictor.get());
-
         if (replay) {
-            print_replay_results(interpreter.branch_stats().trace, overrides);
+            print_replay_results(interpreter.branch_stats().trace, overrides, pipeline,
+                                 interpreter.instruction_count(), comparison_predictor);
+        } else {
+            std::vector<std::unique_ptr<ReportSection>> sections;
+            sections.push_back(
+                std::make_unique<BranchSection>(predictor.get(), interpreter.branch_stats()));
+            sections.push_back(std::make_unique<PipelineSection>(
+                interpreter.instruction_count(), interpreter.branch_stats(),
+                interpreter.branch_stats().trace, pipeline));
+            print_report(sections);
         }
 
         if (exit_code.has_value()) {

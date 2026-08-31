@@ -1,5 +1,7 @@
 #include "risc-e/cpu/branch_stats.hpp"
 
+#include "risc-e/decoder/decoder.hpp"
+
 void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
                              const BranchContext& ctx, bool taken, uint32_t next_pc,
                              uint64_t inst_count) {
@@ -59,4 +61,14 @@ double BranchStats::indirect_hit_rate() const {
     const uint64_t predicted = indirect_hits + indirect_misses;
     if (predicted == 0) return 0.0;
     return 100.0 * static_cast<double>(indirect_hits) / static_cast<double>(predicted);
+}
+
+BranchStats replay_trace(const std::vector<BranchRecord>& trace, BranchPredictor& predictor) {
+    BranchStats stats;
+    for (const BranchRecord& rec : trace) {
+        const DecodedInstruction d = decode_raw_inst(rec.raw, rec.pc);
+        const BranchContext ctx = BranchContext::from_decoded(d);
+        record_control_transfer(stats, &predictor, ctx, rec.taken, rec.target);
+    }
+    return stats;
 }

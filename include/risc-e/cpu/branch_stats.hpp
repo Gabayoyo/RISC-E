@@ -63,3 +63,8 @@ struct BranchStats {
 void record_control_transfer(BranchStats& stats, BranchPredictor* predictor,
                              const BranchContext& ctx, bool taken, uint32_t next_pc,
                              uint64_t inst_count = 0);
+
+// Replays a recorded control-flow trace through a predictor and returns the
+// cumulative stats, yielding the same hit/miss numbers as a live run. Shared
+// by --comparison and the pipeline section's baseline comparison.
+BranchStats replay_trace(const std::vector<BranchRecord>& trace, BranchPredictor& predictor);

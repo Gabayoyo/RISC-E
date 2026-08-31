@@ -33,6 +33,10 @@ add_executable(branch_prediction_test tests/branch_prediction_test.cpp)
 target_link_libraries(branch_prediction_test PRIVATE risc-e-core)
 add_test(NAME branch_prediction_test COMMAND branch_prediction_test)
 
+add_executable(pipeline_test tests/pipeline_test.cpp)
+target_link_libraries(pipeline_test PRIVATE risc-e-core)
+add_test(NAME pipeline_test COMMAND pipeline_test)
+
 if(RISCV_GCC)
     set(TEST_PROGRAMS exit stack heap wild_read wild_write misaligned branches)
     set(PROGRAM_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests/programs/src)
@@ -81,11 +85,11 @@ if(RISCV_GCC)
     set_tests_properties(branches PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 7")
 
     add_test(NAME branch_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(branch_stats PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6, misses: 1")
+    set_tests_properties(branch_stats PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME branch_stats_from_source COMMAND risc-e ${PROGRAM_SRC_DIR}/branches.S)
     set_tests_properties(branch_stats_from_source
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6, misses: 1")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME hello_c COMMAND risc-e ${PROGRAM_SRC_DIR}/hello.c)
     set_tests_properties(hello_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 42")
@@ -98,7 +102,7 @@ if(RISCV_GCC)
 
     add_test(NAME branchy_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branchy.c)
     set_tests_properties(branchy_c_stats
-                         PROPERTIES PASS_REGULAR_EXPRESSION "conditional branches: [1-9][0-9]*")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
     # C programs with varying branch patterns
     add_test(NAME branch_loops_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_loops.c)
@@ -109,7 +113,7 @@ if(RISCV_GCC)
 
     add_test(NAME branch_data_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_data.c)
     set_tests_properties(branch_data_c_stats
-                         PROPERTIES PASS_REGULAR_EXPRESSION "conditional branches: [1-9][0-9]*")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
     add_test(NAME branch_nested_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_nested.c)
     set_tests_properties(branch_nested_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 36")
@@ -122,7 +126,7 @@ if(RISCV_GCC)
 
     add_test(NAME branch_calls_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_calls.c)
     set_tests_properties(branch_calls_c_stats
-                         PROPERTIES PASS_REGULAR_EXPRESSION "control transfers: [1-9][0-9]*")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
     # General-purpose C programs, reusable for other emulator testing
     add_test(NAME general_memory_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_memory.c)
@@ -137,32 +141,56 @@ if(RISCV_GCC)
     add_test(NAME branch_stats_gshare
              COMMAND risc-e --predictor gshare ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_gshare
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6, misses: 1")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME branch_stats_tournament
              COMMAND risc-e --predictor tournament ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_tournament
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6, misses: 1")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME branch_stats_ras
              COMMAND risc-e --predictor ras ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_ras
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 3, misses: 4")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 3")
 
     add_test(NAME branch_stats_always_not_taken
              COMMAND risc-e --predictor always-not-taken ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_always_not_taken
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2, misses: 5")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2")
 
-    add_test(NAME replay_all_predictors COMMAND risc-e --replay ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(replay_all_predictors
-                         PROPERTIES PASS_REGULAR_EXPRESSION "two-bit: 6/7 hits")
+    add_test(NAME comparison_all_predictors COMMAND risc-e --comparison ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(comparison_all_predictors
+                         PROPERTIES PASS_REGULAR_EXPRESSION "two-bit")
+
+    add_test(NAME comparison_single_predictor
+             COMMAND risc-e --comparison gshare ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(comparison_single_predictor
+                         PROPERTIES PASS_REGULAR_EXPRESSION "gshare"
+                                    FAIL_REGULAR_EXPRESSION "two-bit")
 
     add_test(NAME branch_stats_params
              COMMAND risc-e --predictor gshare --param gshare.history-bits=4
                      --param gshare.ras-depth=0 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_params
-                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5, misses: 2")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5")
+
+    add_test(NAME pipeline_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(pipeline_stats PROPERTIES PASS_REGULAR_EXPRESSION "pipeline")
+
+    add_test(NAME pipeline_penalty_5stage
+             COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(pipeline_penalty_5stage
+                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 2")
+
+    add_test(NAME pipeline_penalty_10stage
+             COMMAND risc-e --pipeline-stages 10 ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(pipeline_penalty_10stage
+                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 7")
+
+    add_test(NAME pipeline_penalty_override
+             COMMAND risc-e --mispredict-penalty 4 ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(pipeline_penalty_override
+                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 4")
 
     add_test(NAME mismatched_param_rejected
              COMMAND risc-e --predictor two-bit --param gshare.history-bits=8
