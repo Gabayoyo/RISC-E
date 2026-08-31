@@ -1,12 +1,19 @@
 #pragma once
 
+#include "risc-e/harness/component.hpp"
+
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <vector>
 
 // Simplified in-order pipeline model used to turn branch-misprediction counts
 // into cycle costs for the CLI report. The model is deliberately small: a
-// fetch-to-commit depth and a per-mispredict penalty.
-struct PipelineModel {
+// fetch-to-commit depth and a per-mispredict penalty. As a Component it plugs
+// into --param / --list and renders the pipeline report section.
+struct PipelineModel : public Component {
+    static constexpr std::string_view kName = "pipeline";
+
     int stages = 5;              // pipeline depth (IF through WB)
     int mispredict_penalty = 0;  // explicit penalty; 0 means "derive from stages"
 
@@ -18,6 +25,16 @@ struct PipelineModel {
         const int derived = stages - 3;
         return derived > 0 ? derived : 0;
     }
+
+    std::string_view name() const override { return kName; }
+    std::string_view type() const override { return "pipeline"; }
+
+    std::vector<ParamSpec> parameters() const override;
+    bool set_parameter(std::string_view name, std::string_view value,
+                       std::string& error) override;
+
+    std::string_view report_title() const override;
+    void report(std::ostream& out, const RunContext& ctx) const override;
 
     // Human-readable description for the report, e.g.
     // "5-stage pipeline (2-cycle mispredict penalty)".

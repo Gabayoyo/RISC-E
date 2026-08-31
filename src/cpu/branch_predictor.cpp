@@ -1,13 +1,10 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 
-#include "risc-e/cpu/predictors/always_not_taken.hpp"
-#include "risc-e/cpu/predictors/gshare.hpp"
-#include "risc-e/cpu/predictors/ras.hpp"
-#include "risc-e/cpu/predictors/tournament.hpp"
-#include "risc-e/cpu/predictors/two_bit_saturating.hpp"
+#include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/pipeline.hpp"
+#include "risc-e/harness/run_context.hpp"
 
-#include <memory>
-#include <string>
+#include <ostream>
 #include <string_view>
 #include <vector>
 
@@ -24,56 +21,44 @@ BranchContext BranchContext::from_decoded(const DecodedInstruction& d) {
     return ctx;
 }
 
-std::optional<long> parse_parameter_value(std::string_view value, std::string& error) {
-    if (value.empty()) {
-        error = "expected an integer value";
-        return std::nullopt;
-    }
-    const std::string text(value);
-    std::size_t consumed = 0;
-    long result = 0;
-    try {
-        result = std::stol(text, &consumed);
-    } catch (const std::exception&) {
-        error = "\"" + text + "\" is not an integer";
-        return std::nullopt;
-    }
-    if (consumed != text.size()) {
-        error = "\"" + text + "\" is not an integer";
-        return std::nullopt;
-    }
-    if (result < 0) {
-        error = "expected a non-negative integer";
-        return std::nullopt;
-    }
-    return result;
+std::string_view BranchPredictor::report_title() const {
+    return "branch prediction";
 }
 
-std::unique_ptr<BranchPredictor> make_predictor(std::string_view name) {
-    if (name == TwoBitSaturatingPredictor::kName) {
-        return std::make_unique<TwoBitSaturatingPredictor>();
+void BranchPredictor::report(std::ostream& out, const RunContext& ctx) const {
+    if (ctx.branch_stats == nullptr) return;
+    const BranchStats& s = *ctx.branch_stats;
+    out << "  predictor: " << name() << '\n';
+    if (s.control_total == 0) {
+        out << "  hit rate: n/a\n"
+            << "  miss rate: n/a\n";
+    } else {
+        const double hit_rate = s.hit_rate();
+        out << "  hit rate: " << hit_rate << "%\n"
+            << "  miss rate: " << (100.0 - hit_rate) << "%\n";
     }
-    if (name == AlwaysNotTakenPredictor::kName) {
-        return std::make_unique<AlwaysNotTakenPredictor>();
-    }
-    if (name == GsharePredictor::kName) {
-        return std::make_unique<GsharePredictor>();
-    }
-    if (name == TournamentPredictor::kName) {
-        return std::make_unique<TournamentPredictor>();
-    }
-    if (name == RasPredictor::kName) {
-        return std::make_unique<RasPredictor>();
-    }
-    return nullptr;
+    out << "  hits: " << s.hits << '\n'
+        << "  misses: " << s.misses << '\n'
+        << "  branches: " << s.control_total << '\n';
 }
 
-std::vector<std::string_view> predictor_names() {
-    return {
-        TwoBitSaturatingPredictor::kName,
-        AlwaysNotTakenPredictor::kName,
-        GsharePredictor::kName,
-        TournamentPredictor::kName,
-        RasPredictor::kName,
-    };
+std::vector<Metric> BranchPredictor::metrics(const RunContext& ctx) {
+    std::vector<Metric> out;
+    if (ctx.branch_stats == nullptr || ctx.branch_stats->trace.empty()) return out;
+
+    const BranchStats replay = replay_trace(ctx.branch_stats->trace, *this);
+    const uint64_t predicted = replay.hits + replay.misses;
+    out.push_back(Metric{"hits", replay.hits, replay.control_total, ""});
+    if (predicted != 0) {
+        out.push_back(Metric{
+            "hit rate",
+            100.0 * static_cast<double>(replay.hits) / static_cast<double>(predicted),
+            std::nullopt, "%"});
+    }
+    if (ctx.pipeline != nullptr) {
+        const PipelineStats ps =
+            compute_pipeline_stats(ctx.instruction_count, replay.misses, *ctx.pipeline);
+        out.push_back(Metric{"cycles", static_cast<uint64_t>(ps.total_cycles), std::nullopt, ""});
+    }
+    return out;
 }

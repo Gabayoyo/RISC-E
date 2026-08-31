@@ -6,23 +6,24 @@ RISC-**Experiment** is a C++ prototyper for RISC-V (RV32I) hardware logic: model
 
 - A C++20 compiler (Clang or GCC) and CMake 3.10 or newer.
 - A RISC-V GCC cross-compiler (`riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`)
-  only if you want to run `.c`/`.S` sources directly or run the integration
-  tests. ELF files run without it. Override the compiler with `RISCV_GCC`.
+  to build the sample programs and integration tests, and to run `.c`/`.S`
+  sources directly. Prebuilt ELF files run without it. Override the compiler
+  with `RISCV_GCC`.
 
 ## Quickstart
 
 ```sh
 cmake -S . -B out/build/preset -DCMAKE_BUILD_TYPE=Debug
 cmake --build out/build/preset
-cd out && ./build/preset/risc-e
+cd out && ./build/preset/risc-e build/preset/tests/programs/elf/branches.elf
 ```
 
-The first run loads `../files/output/sample.elf`, prints a branch-prediction
-and pipeline report, then the program's exit code.
+The run prints a branch-prediction and pipeline report, then the program's
+exit code.
 
 > [!NOTE]
-> The Quickstart needs no cross-compiler. A RISC-V GCC on `PATH` is only
-> required to compile `.c`/`.S` inputs and to build the integration tests.
+> The sample programs are compiled at build time, so the Quickstart needs a
+> RISC-V GCC cross-compiler on `PATH`. Prebuilt ELF files run without it.
 
 ## Features
 
@@ -37,6 +38,9 @@ and pipeline report, then the program's exit code.
   `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras`.
 - **Pipeline model** — turns mispredictions into cycle cost with a configurable
   depth and penalty.
+- **Components** — predictors and the pipeline model plug into one harness
+  interface: tunables (`--param`), a report section, and within-type
+  comparison. Memory and other component types slot in the same way.
 
 > [!NOTE]
 > Not yet implemented: M extension, Zicsr (CSRs), compressed instructions
@@ -98,30 +102,33 @@ exit code: 7
 | Flag | Value | Effect |
 | --- | --- | --- |
 | `--predictor <name>` | `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras` | Select the branch predictor. |
-| `--param <p>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a predictor tunable; repeatable. |
+| `--param <c>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a component tunable; repeatable. |
 | `--pipeline-stages <N>` | integer ≥ 1 (default `5`) | Pipeline depth; the derived penalty grows with depth. |
 | `--mispredict-penalty <N>` | non-negative integer | Override the per-miss penalty directly. |
-| `--comparison [name]` | optional predictor name | Compare predictors over one recorded trace; a name restricts the table to that predictor. |
-| `--list-predictors [name]` | optional predictor name | List predictors and parameters; append a name for detail. |
+| `--comparison [name]` | optional component name | Compare components of one type over the recorded run; a name restricts the table to that component. |
+| `--list [name]` | optional component or type name | List components grouped by type; append a name for detail (`--list-predictors` is an alias). |
 
 ```sh
 cd out && ./build/preset/risc-e path/to/program.elf
 cd out && ./build/preset/risc-e --predictor gshare path/to/program.elf
-cd out && ./build/preset/risc-e --list-predictors
+cd out && ./build/preset/risc-e --list
 ```
 
 ```
-two-bit [table-size=1024, ras-depth=16]
-always-not-taken
-gshare [history-bits=12, ras-depth=16]
-tournament [history-bits=10, ras-depth=16]
-ras [ras-depth=16]
+predictor:
+  two-bit [table-size=1024, ras-depth=16]
+  always-not-taken
+  gshare [history-bits=12, ras-depth=16]
+  tournament [history-bits=10, ras-depth=16]
+  ras [ras-depth=16]
+pipeline:
+  pipeline [stages=5, mispredict-penalty=0]
 ```
 
-`--comparison` executes the program once and then runs every available
-predictor over the recorded control-flow trace, printing a side-by-side
-comparison of hit rate **and** total cycles under the configured pipeline.
-Pass a predictor name to restrict the table to that one:
+`--comparison` executes the program once and then runs every predictor over
+the recorded control-flow trace, printing a side-by-side comparison of hit
+rate **and** total cycles under the configured pipeline. Pass a component name
+to restrict the table to that one:
 
 ```sh
 cd out && ./build/preset/risc-e --comparison path/to/program.elf
@@ -129,13 +136,13 @@ cd out && ./build/preset/risc-e --comparison gshare path/to/program.elf
 ```
 
 ```
-comparison (7 branches, 5-stage pipeline (2-cycle mispredict penalty)):
-  predictor         hits      hit rate    cycles
-  two-bit           6/7       85.71%      18
-  always-not-taken  2/7       28.57%      26
-  gshare            6/7       85.71%      18
-  tournament        6/7       85.71%      18
-  ras               3/7       42.86%      24
+comparison (7 events, 5-stage pipeline (2-cycle mispredict penalty)):
+  component         hits        hit rate    cycles
+  two-bit           6/7         85.71%      18
+  always-not-taken  2/7         28.57%      26
+  gshare            6/7         85.71%      18
+  tournament        6/7         85.71%      18
+  ras               3/7         42.86%      24
 ```
 
 You can also pass a source file directly — `.S`, `.s` or `.c` — and the tool
@@ -162,22 +169,93 @@ is a classic 5-stage in-order pipeline, where each mispredicted branch costs
   more per miss.
 - `--mispredict-penalty <N>` — set the per-miss cost directly.
 
+Both are also settable through the generic component path, e.g.
+`--param pipeline.stages=10`.
+
 The report shows ideal vs actual cycles, CPI, the slowdown against a perfect
 predictor, and **cycles saved** versus doing nothing (`always-not-taken`).
 
-## Adding a predictor
+## Adding a component
 
-Predictors implement the `BranchPredictor` interface
-(`include/risc-e/cpu/branch_predictor.hpp`) with three methods: `predict()`
-returns the predicted next PC, `resolve()` feeds the actual outcome back for
-learning, and `name()` identifies the predictor on the CLI. The context passed
-in tells you whether the instruction is a conditional branch, call, or return,
-so a predictor can keep its own BTB, return-address stack, or direction tables.
+Anything the harness manages — predictors, the pipeline, memory — is a
+`Component`. The registry is two-level: types are declared once, and
+implementations register into a type.
 
-A new predictor is one file pair under `include/risc-e/cpu/predictors/` and
-`src/cpu/predictors/`: declare its tunables with `parameters()` /
-`set_parameter()`, then register it in `make_predictor()`. It automatically
-appears in `--list-predictors` and `--comparison`.
+### Extending an existing definition
+
+Most commonly, you will be adding a new definition to an existing `Component`. For example: a custom branch predictor extends `BranchPredictor`, allowing you to implement custom branch predictor logic:
+
+```cpp
+class MyPredictor : public BranchPredictor {
+public:
+    std::string_view name() const override { return "my-predictor"; }
+
+    Prediction predict(const BranchContext& ctx) const override {
+        // predict the next PC for a control transfer
+    }
+    void resolve(const BranchContext& ctx, const Resolution& res) override {
+        // learn from the actual outcome
+    }
+
+    std::vector<ParamSpec> parameters() const override { /* tunables */ }
+    bool set_parameter(std::string_view name, std::string_view value,
+                       std::string& error) override { /* validate + apply */ }
+};
+```
+
+The harness features — tunables, the report section, and comparison — come
+automatically. Registration is one call in `src/harness/registry.cpp`:
+
+```cpp
+register_component<BranchPredictor, MyPredictor>(
+    "predictor", MyPredictor::kName,
+    []() -> std::unique_ptr<Component> { return std::make_unique<MyPredictor>(); });
+```
+
+The type's base class (`BranchPredictor`) is part of the registration, so a
+`MyPredictor` that does not extend it fails to compile.
+
+### Adding a new type
+
+If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks:
+
+```cpp
+class MyMemoryBase : public Component {
+public:
+    std::string_view name() const override = 0;
+    std::string_view type() const override { return "memory"; }
+
+    std::vector<ParamSpec> parameters() const override { /* tunables */ }
+    bool set_parameter(std::string_view name, std::string_view value,
+                       std::string& error) override { /* validate + apply */ }
+
+    std::string_view report_title() const override { return "memory"; }
+    void report(std::ostream& out, const RunContext& ctx) const override {
+        // one output section for every run
+    }
+
+    std::vector<Metric> metrics(const RunContext& ctx) override {
+        // named numbers for the --comparison table
+        return {{"hit rate", 85.71, std::nullopt, "%"}};
+    }
+};
+```
+
+Then declare the type and register implementations into it:
+
+```cpp
+register_type("memory");
+
+register_component<MyMemoryBase, MyMemory>(
+    "memory", MyMemory::kName,
+    []() -> std::unique_ptr<Component> { return std::make_unique<MyMemory>(); });
+```
+
+Implementations of the new type are added as described above. Registration is
+what makes a class swappable: types and components that are never registered
+are invisible to `--param`, `--list`, and `--comparison`, and
+`register_component` enforces at compile time that an implementation extends
+its type's base class (and `Component`).
 
 ## Layout
 
@@ -189,16 +267,17 @@ include/risc-e/   public headers
   elf/                ELF loading
   interpreter/        the interpreter
   memory/             memory interface and physical memory
-  report/             report sections
+  harness/            the component interface, registry, and run context
 src/                implementation, mirroring include/risc-e/
   main.cpp            CLI frontend
 tests/              unit tests and RISC-V test programs
+  CMakeLists.txt      all test registration
 tests/programs/
   src/                RISC-V assembly and C sources
   elf/                built ELF outputs (generated, not tracked)
 files/
   output/sample.elf   default program loaded when no argument is given
-CMakeLists.txt        build and test registration
+CMakeLists.txt        core build (tests live in tests/CMakeLists.txt)
 CMakePresets.json     `preset`, `ci`, and `sanitize` presets
 .github/workflows/ci.yml   CI build + test
 ```

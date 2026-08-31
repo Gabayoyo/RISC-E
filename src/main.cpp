@@ -2,15 +2,15 @@
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/pipeline.hpp"
 #include "risc-e/cpu/predictors/two_bit_saturating.hpp"
-#include "risc-e/cpu/return_address_stack.hpp"
 #include "risc-e/elf/loader.hpp"
+#include "risc-e/harness/component.hpp"
+#include "risc-e/harness/registry.hpp"
+#include "risc-e/harness/run_context.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
-#include "risc-e/report/branch_section.hpp"
-#include "risc-e/report/pipeline_section.hpp"
-#include "risc-e/report/report_section.hpp"
 
 #include "runtime_files.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -144,50 +144,41 @@ const char* halt_reason_name(HaltReason reason) {
     }
 }
 
-// Prints a report composed of named sections, each separated by a blank line.
-// New breakdowns are added by pushing another ReportSection into the vector.
-void print_report(const std::vector<std::unique_ptr<ReportSection>>& sections) {
-    for (const auto& section : sections) {
-        std::cout << section->title() << '\n';
-        section->render(std::cout);
-        std::cout << '\n';
-    }
-}
-
-// Applies every override that targets `predictor` to it. Overrides are
+// Applies every override that targets `component` to it. Overrides are
 // validated in main before the run, so this cannot fail here.
-void apply_overrides(BranchPredictor& predictor, const std::vector<ParamOverride>& overrides) {
+void apply_overrides(Component& component, const std::vector<ParamOverride>& overrides) {
     for (const ParamOverride& o : overrides) {
-        if (o.predictor != predictor.name()) continue;
+        if (o.component != component.name()) continue;
         std::string error;
-        const bool ok = predictor.set_parameter(o.name, o.value, error);
-        (void)ok;
+        (void)component.set_parameter(o.name, o.value, error);
     }
 }
 
-// Checks that every override targets a real predictor, that it matches the
-// selected predictor in single-predictor mode, and that the target accepts the
-// parameter and value. Returns false after reporting the first problem.
-bool validate_overrides(const std::vector<ParamOverride>& overrides, bool replay,
+// Checks that every override targets a real component, that it matches a
+// component active in the run (outside comparison mode), and that the target
+// accepts the parameter and value. Returns false after reporting the first
+// problem.
+bool validate_overrides(const std::vector<ParamOverride>& overrides, bool comparison_mode,
                         const std::string& predictor_name) {
     for (const ParamOverride& o : overrides) {
-        auto target = make_predictor(o.predictor);
-        if (target == nullptr) {
-            std::cerr << "RISC-E error: --param targets unknown predictor \"" << o.predictor
+        auto comp = make_component(o.component);
+        if (comp == nullptr) {
+            std::cerr << "RISC-E error: --param targets unknown component \"" << o.component
                       << "\"\n";
             return false;
         }
-        if (!replay && o.predictor != predictor_name) {
-            std::cerr << "RISC-E error: --param \"" << o.predictor << "." << o.name
-                      << "\" targets \"" << o.predictor << "\" but --predictor selected \""
-                      << predictor_name << "\"\n";
+        if (!comparison_mode && o.component != predictor_name &&
+            o.component != PipelineModel::kName) {
+            std::cerr << "RISC-E error: --param \"" << o.component << "." << o.name
+                      << "\" targets \"" << o.component << "\", which is not active in this run"
+                      << " (--predictor selected \"" << predictor_name << "\")\n";
             return false;
         }
         std::string error;
-        if (!target->set_parameter(o.name, o.value, error)) {
-            std::cerr << "RISC-E error: predictor \"" << o.predictor << "\": " << error
+        if (!comp->set_parameter(o.name, o.value, error)) {
+            std::cerr << "RISC-E error: component \"" << o.component << "\": " << error
                       << "; valid parameters:";
-            for (const ParamSpec& p : target->parameters()) {
+            for (const ParamSpec& p : comp->parameters()) {
                 std::cerr << " " << p.name;
             }
             std::cerr << '\n';
@@ -197,77 +188,127 @@ bool validate_overrides(const std::vector<ParamOverride>& overrides, bool replay
     return true;
 }
 
-// Replays a recorded control-flow trace through every available predictor (or
-// just `only_predictor` when non-empty) and prints a comparison table,
-// including each predictor's cycle cost under the configured pipeline model.
-// Reuses the same accounting as live execution.
-void print_replay_results(const std::vector<BranchRecord>& trace,
-                          const std::vector<ParamOverride>& overrides,
-                          const PipelineModel& pipeline, uint64_t inst_count,
-                          const std::string& only_predictor = "") {
-    if (trace.empty()) {
-        std::cout << "comparison: no control transfers recorded\n";
-        return;
-    }
-    std::cout << "comparison (" << trace.size() << " branches, " << pipeline.description() << "):\n"
-              << "  " << std::left << std::setw(18) << "predictor" << std::setw(10) << "hits"
-              << std::setw(12) << "hit rate" << "cycles\n";
-    for (const std::string_view name : predictor_names()) {
-        if (!only_predictor.empty() && name != only_predictor) continue;
-        auto predictor = make_predictor(name);
-        apply_overrides(*predictor, overrides);  // validated in main, cannot fail here
-        const BranchStats stats = replay_trace(trace, *predictor);
-
-        std::ostringstream rate;
-        rate << std::fixed << std::setprecision(2) << stats.hit_rate() << "%";
-        const uint64_t cycles =
-            compute_pipeline_stats(inst_count, stats.misses, pipeline).total_cycles;
-
-        std::cout << "  " << std::left << std::setw(18) << name << std::setw(10)
-                  << (std::to_string(stats.hits) + "/" + std::to_string(stats.control_total))
-                  << std::setw(12) << rate.str() << cycles << '\n';
+void print_type_rows(std::string_view type) {
+    for (const std::string_view name : component_names(type)) {
+        auto comp = make_component(name);
+        std::cout << "  " << name;
+        const std::vector<ParamSpec> params = comp->parameters();
+        if (!params.empty()) {
+            std::cout << " [";
+            for (std::size_t i = 0; i < params.size(); ++i) {
+                if (i != 0) std::cout << ", ";
+                std::cout << params[i].name << "=" << params[i].default_value;
+            }
+            std::cout << "]";
+        }
+        std::cout << '\n';
     }
 }
 
-void print_predictor_list(const std::string& detail) {
+// Prints a component list. Empty detail: all components grouped by type.
+// Otherwise: the detail view of one component, or the grouped list of one
+// type. Returns false for an unknown name/type.
+bool print_component_list(const std::string& detail) {
     if (detail.empty()) {
-        for (const std::string_view name : predictor_names()) {
-            std::cout << name;
-            auto predictor = make_predictor(name);
-            const std::vector<ParamSpec> params = predictor->parameters();
-            if (!params.empty()) {
-                std::cout << " [";
-                for (std::size_t i = 0; i < params.size(); ++i) {
-                    if (i != 0) std::cout << ", ";
-                    std::cout << params[i].name << "=" << params[i].default_value;
-                }
+        for (const std::string_view type : component_types()) {
+            std::cout << type << ":\n";
+            print_type_rows(type);
+        }
+        return true;
+    }
+
+    if (make_component(detail) != nullptr) {
+        auto comp = make_component(detail);
+        std::cout << detail << ":\n";
+        const std::vector<ParamSpec> params = comp->parameters();
+        if (params.empty()) {
+            std::cout << "  (no parameters)\n";
+            return true;
+        }
+        for (const ParamSpec& p : params) {
+            std::cout << "  " << p.name << "  default " << p.default_value;
+            if (p.min != 0 || p.max != 0) {
+                std::cout << "  range [" << p.min;
+                if (p.max != 0) std::cout << ", " << p.max;
+                else            std::cout << ", ...";
                 std::cout << "]";
             }
-            std::cout << '\n';
+            std::cout << "  " << p.help << '\n';
         }
+        return true;
+    }
+
+    if (!component_names(detail).empty()) {
+        std::cout << detail << ":\n";
+        print_type_rows(detail);
+        return true;
+    }
+
+    std::cerr << "RISC-E error: unknown component or type \"" << detail << "\"\n";
+    return false;
+}
+
+// Compares components of one type over the recorded run: resets each, asks
+// for its metrics, and prints a side-by-side table. `only` restricts the set
+// to a single component. Metrics are self-describing (label/value/unit); the
+// harness only aligns labels and formats, never interprets the numbers.
+void print_comparison_table(std::string_view type, const std::string& only,
+                            const RunContext& ctx,
+                            const std::vector<ParamOverride>& overrides) {
+    std::vector<std::string_view> names = component_names(type);
+    if (!only.empty()) names = {only};
+
+    std::vector<std::string> labels;
+    std::vector<std::pair<std::string, std::vector<Metric>>> rows;
+    for (const std::string_view name : names) {
+        auto comp = make_component(name);
+        if (comp == nullptr) continue;
+        apply_overrides(*comp, overrides);
+        comp->reset();
+        std::vector<Metric> metrics = comp->metrics(ctx);
+        if (metrics.empty()) continue;
+        for (const Metric& m : metrics) {
+            if (std::find(labels.begin(), labels.end(), m.label) == labels.end()) {
+                labels.push_back(m.label);
+            }
+        }
+        rows.emplace_back(std::string(name), std::move(metrics));
+    }
+
+    if (rows.empty()) {
+        std::cout << "comparison: no metrics for type \"" << type << "\"\n";
         return;
     }
 
-    auto predictor = make_predictor(detail);
-    if (predictor == nullptr) {
-        std::cerr << "RISC-E error: unknown predictor \"" << detail << "\"\n";
-        return;
-    }
-    std::cout << detail << ":\n";
-    const std::vector<ParamSpec> params = predictor->parameters();
-    if (params.empty()) {
-        std::cout << "  (no parameters)\n";
-        return;
-    }
-    for (const ParamSpec& p : params) {
-        std::cout << "  " << p.name << "  default " << p.default_value;
-        if (p.min != 0 || p.max != 0) {
-            std::cout << "  range [" << p.min;
-            if (p.max != 0) std::cout << ", " << p.max;
-            else            std::cout << ", ...";
-            std::cout << "]";
+    const uint64_t events = ctx.branch_stats == nullptr ? 0 : ctx.branch_stats->trace.size();
+    std::cout << "comparison (" << events << " events"
+              << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description()) << "):\n";
+    std::cout << "  " << std::left << std::setw(18) << "component";
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        if (i + 1 == labels.size()) {
+            std::cout << labels[i];
+        } else {
+            std::cout << std::setw(12) << labels[i];
         }
-        std::cout << "  " << p.help << '\n';
+    }
+    std::cout << '\n';
+    for (const auto& [row_name, metrics] : rows) {
+        std::cout << "  " << std::setw(18) << row_name;
+        for (std::size_t i = 0; i < labels.size(); ++i) {
+            std::string text;
+            for (const Metric& m : metrics) {
+                if (m.label == labels[i]) {
+                    text = format_metric(m);
+                    break;
+                }
+            }
+            if (i + 1 == labels.size()) {
+                std::cout << text;
+            } else {
+                std::cout << std::setw(12) << text;
+            }
+        }
+        std::cout << '\n';
     }
 }
 
@@ -278,27 +319,29 @@ int main(int argc, char** argv) {
     std::string predictor_name = std::string(TwoBitSaturatingPredictor::kName);
     std::vector<ParamOverride> overrides;
     PipelineModel pipeline;
-    bool replay = false;
+    bool comparison_mode = false;
     bool saw_predictor = false;
-    std::string comparison_predictor;  // optional --comparison <name> filter
+    std::string comparison_type = "predictor";
+    std::string comparison_only;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--predictor") {
             if (i + 1 >= argc) {
                 std::cerr << "RISC-E error: --predictor requires a predictor name "
-                             "(--list-predictors)\n";
+                             "(--list)\n";
                 return 1;
             }
             predictor_name = argv[++i];
             saw_predictor = true;
         } else if (arg == "--comparison") {
-            replay = true;
-            // Optional argument: compare just one predictor. Only consume the
-            // next token when it names a known predictor, so an ELF path
+            comparison_mode = true;
+            // Optional argument: compare just one component. Only consume the
+            // next token when it names a known component, so an ELF path
             // following --comparison is never mistaken for a component name.
-            if (i + 1 < argc && make_predictor(argv[i + 1]) != nullptr) {
-                comparison_predictor = argv[++i];
+            if (i + 1 < argc && make_component(argv[i + 1]) != nullptr) {
+                comparison_only = argv[++i];
+                comparison_type = std::string(make_component(comparison_only)->type());
             }
         } else if (arg == "--pipeline-stages") {
             if (i + 1 >= argc) {
@@ -331,11 +374,11 @@ int main(int argc, char** argv) {
             }
             pipeline.mispredict_penalty = static_cast<int>(*penalty);
         } else if (arg == "--param") {
-            // arch: --param is already component-namespaced ("<component>.<tunable>=<value>",
-            // component == predictor name today). Future components (memory, pipeline, ...)
-            // can reuse the same syntax and ParamSpec machinery without CLI changes.
+            // arch: --param is component-namespaced ("<component>.<tunable>=<value>").
+            // Predictors and the pipeline register today; memory and other
+            // component types reuse the same syntax and ParamSpec machinery.
             if (i + 1 >= argc) {
-                std::cerr << "RISC-E error: --param requires <predictor>.<parameter>=<value>, "
+                std::cerr << "RISC-E error: --param requires <component>.<parameter>=<value>, "
                              "e.g. gshare.history-bits=14\n";
                 return 1;
             }
@@ -343,50 +386,53 @@ int main(int argc, char** argv) {
             const std::size_t eq = spec.find('=');
             const std::size_t dot = spec.find('.');
             if (eq == std::string::npos || dot == std::string::npos || dot > eq) {
-                std::cerr << "RISC-E error: --param expects <predictor>.<parameter>=<value>, "
+                std::cerr << "RISC-E error: --param expects <component>.<parameter>=<value>, "
                              "e.g. gshare.history-bits=14\n";
                 return 1;
             }
             ParamOverride o;
-            o.predictor = spec.substr(0, dot);
+            o.component = spec.substr(0, dot);
             o.name      = spec.substr(dot + 1, eq - dot - 1);
             o.value     = spec.substr(eq + 1);
             overrides.push_back(std::move(o));
-        } else if (arg == "--list-predictors") {
+        } else if (arg == "--list" || arg == "--list-predictors") {
             std::string detail;
             if (i + 1 < argc && argv[i + 1][0] != '-') detail = argv[++i];
-            print_predictor_list(detail);
-            return detail.empty() ? 0 : (make_predictor(detail) == nullptr ? 1 : 0);
+            return print_component_list(detail) ? 0 : 1;
         } else {
             elf_path = arg;
         }
     }
 
-    if (replay && saw_predictor) {
-        std::cerr << "RISC-E error: --comparison compares predictors and cannot be combined "
+    if (comparison_mode && saw_predictor) {
+        std::cerr << "RISC-E error: --comparison compares components and cannot be combined "
                      "with --predictor; use --comparison <name> to select one\n";
         return 1;
     }
 
     // Fail fast on overrides that cannot apply in this mode (unknown target
-    // predictor, mismatch with --predictor, unknown parameter, bad value).
-    if (!validate_overrides(overrides, replay, predictor_name)) return 1;
+    // component, mismatch with the active components, unknown parameter, bad
+    // value).
+    if (!validate_overrides(overrides, comparison_mode, predictor_name)) return 1;
 
     try {
-        std::unique_ptr<BranchPredictor> predictor;
-        if (!replay) {
-            predictor = make_predictor(predictor_name);
+        std::unique_ptr<Component> predictor_component;
+        BranchPredictor* predictor = nullptr;
+        if (!comparison_mode) {
+            predictor_component = make_component(predictor_name);
+            predictor = dynamic_cast<BranchPredictor*>(predictor_component.get());
             if (predictor == nullptr) {
                 std::cerr << "RISC-E error: unknown predictor \"" << predictor_name
                           << "\"; available predictors:";
-                for (const std::string_view name : predictor_names()) {
+                for (const std::string_view name : component_names("predictor")) {
                     std::cerr << " " << name;
                 }
                 std::cerr << '\n';
                 return 1;
             }
-            apply_overrides(*predictor, overrides);  // validated in main, cannot fail here
+            apply_overrides(*predictor, overrides);
         }
+        apply_overrides(pipeline, overrides);
 
         TempFileGuard temp_files;
         const std::string load_path =
@@ -394,22 +440,25 @@ int main(int argc, char** argv) {
 
         LoadedElf elf = load_elf(load_path);
 
-        Interpreter interpreter(std::move(elf), predictor.get());
+        Interpreter interpreter(std::move(elf), predictor);
         interpreter.set_branch_trace(true);
 
         std::optional<uint32_t> exit_code = interpreter.run();
 
-        if (replay) {
-            print_replay_results(interpreter.branch_stats().trace, overrides, pipeline,
-                                 interpreter.instruction_count(), comparison_predictor);
+        RunContext ctx;
+        ctx.instruction_count = interpreter.instruction_count();
+        ctx.branch_stats = &interpreter.branch_stats();
+        ctx.pipeline = &pipeline;
+
+        if (comparison_mode) {
+            print_comparison_table(comparison_type, comparison_only, ctx, overrides);
         } else {
-            std::vector<std::unique_ptr<ReportSection>> sections;
-            sections.push_back(
-                std::make_unique<BranchSection>(predictor.get(), interpreter.branch_stats()));
-            sections.push_back(std::make_unique<PipelineSection>(
-                interpreter.instruction_count(), interpreter.branch_stats(),
-                interpreter.branch_stats().trace, pipeline));
-            print_report(sections);
+            std::cout << predictor->report_title() << '\n';
+            predictor->report(std::cout, ctx);
+            std::cout << '\n';
+            std::cout << pipeline.report_title() << '\n';
+            pipeline.report(std::cout, ctx);
+            std::cout << '\n';
         }
 
         if (exit_code.has_value()) {

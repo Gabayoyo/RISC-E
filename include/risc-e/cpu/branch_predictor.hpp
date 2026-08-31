@@ -2,6 +2,7 @@
 
 #include "risc-e/decoder/decoded_instruction.hpp"
 #include "risc-e/decoder/opcodes.hpp"
+#include "risc-e/harness/component.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -64,65 +65,33 @@ struct Resolution {
     uint32_t next_pc = 0;
 };
 
-// One tunable a predictor exposes to the CLI. Bounds are inclusive; a bound of
-// 0 means unbounded on that end.
-struct ParamSpec {
-    std::string_view name;           // CLI key, e.g. "history-bits"
-    std::string_view help;           // one-line description for --list-predictors
-    long min = 0;
-    long max = 0;
-    std::string default_value;       // current value, for display
-};
-
-// One CLI-provided override: "predictor.parameter=value" (see main.cpp).
-struct ParamOverride {
-    std::string predictor;  // before the first '.'
-    std::string name;       // after the first '.'
-    std::string value;
-};
-
-// Abstract contract for any branch predictor. A predictor may own arbitrary
-// components (BTB, RAS, direction tables, ...) as private members.
-class BranchPredictor {
+// Abstract contract for any branch predictor, and a Component: predictors plug
+// into the shared harness (tunables, report section, comparison) while keeping
+// their own components (BTB, RAS, direction tables, ...) private.
+class BranchPredictor : public Component {
 public:
-    virtual ~BranchPredictor() = default;
-
     // Predict the next PC for a control-flow instruction.
     virtual Prediction predict(const BranchContext& ctx) const = 0;
 
     // Feed the actual outcome back so the predictor can learn.
     virtual void resolve(const BranchContext& ctx, const Resolution& res) = 0;
 
-    virtual std::string_view name() const = 0;
+    std::string_view name() const override = 0;
+
+    std::string_view type() const override { return "predictor"; }
 
     // Optional: clear all learned state.
-    virtual void reset() {}
+    void reset() override {}
 
-    // Tunables this predictor accepts. The CLI uses this for --list-predictors
-    // and to validate --param overrides, so a new predictor needs no changes
-    // outside its own files.
-    virtual std::vector<ParamSpec> parameters() const { return {}; }
+    // Report section: predictor name, hit/miss rates and counts.
+    std::string_view report_title() const override;
+    void report(std::ostream& out, const RunContext& ctx) const override;
 
-    // Applies one tunable by name. Returns false and fills `error` when the
-    // name is unknown or the value is invalid.
-    virtual bool set_parameter(std::string_view name, std::string_view value,
-                               std::string& error) {
-        (void)value;
-        error = "unknown parameter \"" + std::string(name) + "\"";
-        return false;
-    }
+    // Comparison metrics: replays the run's branch trace through this
+    // predictor and reports hits / hit rate / cycles under the active
+    // pipeline model. Empty when there is no recorded trace.
+    std::vector<Metric> metrics(const RunContext& ctx) override;
 };
-
-// Parses a non-negative integer parameter value. Returns nullopt and fills
-// `error` when the value is not a non-negative integer.
-std::optional<long> parse_parameter_value(std::string_view value, std::string& error);
-
-// Builds a predictor from its CLI name (see predictor_names()).
-// Returns nullptr for unknown names.
-std::unique_ptr<BranchPredictor> make_predictor(std::string_view name);
-
-// Names accepted by make_predictor(), e.g. for --predictor / --list-predictors.
-std::vector<std::string_view> predictor_names();
 
 // Shared 2-bit saturating counter updates (counters range 0..3, >= 2 = taken).
 inline std::uint8_t saturating_increment(std::uint8_t c) { return c < 3 ? c + 1 : 3; }

@@ -7,6 +7,7 @@
 #include "risc-e/cpu/predictors/two_bit_saturating.hpp"
 #include "risc-e/cpu/return_address_stack.hpp"
 #include "risc-e/elf/loader.hpp"
+#include "risc-e/harness/registry.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
 #include <cstdint>
@@ -163,23 +164,24 @@ void test_return_address_stack() {
 }
 
 void test_factory() {
-    expect(make_predictor("two-bit") != nullptr, "two-bit is a valid predictor");
-    expect(make_predictor("always-not-taken") != nullptr, "always-not-taken is a valid predictor");
-    expect(make_predictor("gshare") != nullptr, "gshare is a valid predictor");
-    expect(make_predictor("tournament") != nullptr, "tournament is a valid predictor");
-    expect(make_predictor("ras") != nullptr, "ras is a valid predictor");
-    expect(make_predictor("bogus") == nullptr, "unknown predictor names are rejected");
+    expect(make_component("two-bit") != nullptr, "two-bit is a valid predictor");
+    expect(make_component("always-not-taken") != nullptr, "always-not-taken is a valid predictor");
+    expect(make_component("gshare") != nullptr, "gshare is a valid predictor");
+    expect(make_component("tournament") != nullptr, "tournament is a valid predictor");
+    expect(make_component("ras") != nullptr, "ras is a valid predictor");
+    expect(make_component("bogus") == nullptr, "unknown predictor names are rejected");
 
-    const std::vector<std::string_view> names = predictor_names();
+    const std::vector<std::string_view> names = component_names("predictor");
     expect(names.size() == 5, "five predictors registered");
     for (std::string_view name : names) {
-        expect(make_predictor(name) != nullptr, "every registered name constructs a predictor");
+        expect(make_component(name) != nullptr, "every registered name constructs a predictor");
     }
 }
 
 void test_parameters() {
-    auto predictor = make_predictor("gshare");
-    expect(predictor != nullptr, "gshare is constructible");
+    auto comp = make_component("gshare");
+    auto predictor = dynamic_cast<BranchPredictor*>(comp.get());
+    expect(predictor != nullptr, "gshare is a branch predictor");
 
     std::string error;
     expect(predictor->set_parameter("history-bits", "6", error), "history-bits accepted");
