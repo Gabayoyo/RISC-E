@@ -1,59 +1,46 @@
 # RISC-E
 
-A RISC-V (RV32I) ELF loader and interpreter, written in C++20.
+RISC-**Experiment** is a C++ prototyper for RISC-V (RV32I) hardware logic: model components such as branch prediction, pipelines, and memory at the C level, then run them on a simulated interpreter with real RV32I programs. Competing designs can be compared head-to-head on the same benchmark programs.
 
-## Status
+## Prerequisites
 
-- ELF32 RISC-V loading (`ET_EXEC`)
-- RV32I base instruction set: LUI, AUIPC, JAL, JALR, branches, loads/stores,
-  integer arithmetic/logical ops, ECALL, EBREAK, FENCE
-- ECALL syscall emulation: `write` (64), `exit` (93), `brk` (214)
-- Page-based memory with on-demand allocation, unmapped access and
-  misalignment raise traps instead of crashing
-- Pluggable branch prediction: conditional branches, JAL and JALR all go
-  through a small `BranchPredictor` interface; hit rates are measured
-  target-aware (predicted next PC vs actual next PC). Built-in predictors:
-  `two-bit`, `always-not-taken`, `gshare`, `tournament`, `ras` (selectable
-  with `--predictor`). The table predictors own a small return-address stack
-  (RAS) for call/return targets; every predictor declares its own tunables,
-  set with `--param <predictor>.<parameter>=<value>` (see `--list-predictors`),
-  and `--replay` runs every predictor over one recorded control-flow trace to
-  compare them directly.
+- A C++20 compiler (Clang or GCC) and CMake 3.10 or newer.
+- A RISC-V GCC cross-compiler (`riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`)
+  only if you want to run `.c`/`.S` sources directly or run the integration
+  tests. ELF files run without it. Override the compiler with `RISCV_GCC`.
 
-Not yet implemented: M extension, Zicsr (CSRs), compressed instructions (RVC),
-IR lifting, and JIT code generation.
+## Quickstart
 
-## Layout
-
-```
-include/risc-e/   public headers
-  cpu/                CPU state, halt reasons, trap interface, branch
-                      stats, the branch predictor interface, and a
-                      predictors/ subdirectory with one file per predictor
-  decoder/            instruction decoding and the shared opcode
-                      constants (opcodes.hpp)
-  elf/                ELF loading
-  interpreter/        the interpreter
-  memory/             memory interface and physical memory
-src/
-  main.cpp            CLI frontend
-  cpu/                implementation
-  decoder/            implementation
-  elf/                implementation
-  interpreter/        implementation
-  memory/             implementation
-tests/
-  unit tests and RISC-V test programs
-tests/programs/
-  src/                RISC-V assembly and C sources
-  elf/                built ELF outputs (generated, not tracked)
+```sh
+cmake -S . -B out/build/preset -DCMAKE_BUILD_TYPE=Debug
+cmake --build out/build/preset
+cd out && ./build/preset/risc-e
 ```
 
-Each public header under `include/risc-e/` has a matching implementation in
-`src/`, except a few header-only ones that expose only inline constants and
-helpers (`decoder/opcodes.hpp`, plus the inline helper functions in
-`cpu/branch_predictor.hpp`). `main.cpp` is the only frontend and drives the
-interpreter directly.
+The first run loads `../files/output/sample.elf`, prints a branch-prediction
+and pipeline report, then the program's exit code.
+
+> [!NOTE]
+> The Quickstart needs no cross-compiler. A RISC-V GCC on `PATH` is only
+> required to compile `.c`/`.S` inputs and to build the integration tests.
+
+## Features
+
+- **ELF loading** — ELF32 RISC-V `ET_EXEC` images.
+- **RV32I ISA** — LUI, AUIPC, JAL, JALR, branches, loads/stores, integer
+  arithmetic and logical ops, ECALL, EBREAK, FENCE.
+- **Syscall emulation** — `write` (64), `exit` (93), `brk` (214).
+- **Memory model** — page-based memory with on-demand allocation; unmapped
+  access and misalignment raise traps instead of crashing.
+- **Branch prediction** — pluggable predictors behind one interface, each with
+  its own tunables, plus a trace replay for side-by-side comparison. Built-ins:
+  `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras`.
+- **Pipeline model** — turns mispredictions into cycle cost with a configurable
+  depth and penalty.
+
+> [!NOTE]
+> Not yet implemented: M extension, Zicsr (CSRs), compressed instructions
+> (RVC), IR lifting, and JIT code generation.
 
 ## Build
 
@@ -63,8 +50,8 @@ cmake --build out/build/preset
 ```
 
 A portable `ci` preset (default toolchain) and a `sanitize` preset
-(ASan + UBSan) are also available; the CI workflow on GitHub builds and tests
-both on every push:
+(ASan + UBSan) are also available; the CI workflow builds and tests both on
+every push:
 
 ```sh
 cmake -S . -B out/build/ci --preset ci
@@ -80,25 +67,46 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
-Branch stats are printed on every run: per-type branch taken counts and the
-simulated predictor's hit/miss rate. Choose the predictor with
-`--predictor <name>` (default `two-bit`) and list the available predictors and
-their parameters with `--list-predictors` (append a predictor name for a
-detailed view):
+Every run prints two report sections — **branch prediction** (predictor name,
+hit/miss rate and counts, branches scored) and **pipeline** (the cycle cost of
+the run under a configurable pipeline model):
+
+```
+branch prediction
+  predictor: two-bit
+  hit rate: 85.7143%
+  miss rate: 14.2857%
+  hits: 6
+  misses: 1
+  branches: 7
+
+pipeline
+  model: 5-stage pipeline (2-cycle mispredict penalty)
+  instructions: 16
+  ideal cycles: 16
+  penalty cycles: 2 (1 miss x 2 cycles)
+  total cycles: 18
+  CPI: 1.125
+  slowdown: +12.50% vs perfect
+  cycles saved: 8 vs always-not-taken
+
+exit code: 7
+```
+
+### CLI reference
+
+| Flag | Value | Effect |
+| --- | --- | --- |
+| `--predictor <name>` | `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras` | Select the branch predictor. |
+| `--param <p>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a predictor tunable; repeatable. |
+| `--pipeline-stages <N>` | integer ≥ 1 (default `5`) | Pipeline depth; the derived penalty grows with depth. |
+| `--mispredict-penalty <N>` | non-negative integer | Override the per-miss penalty directly. |
+| `--comparison [name]` | optional predictor name | Compare predictors over one recorded trace; a name restricts the table to that predictor. |
+| `--list-predictors [name]` | optional predictor name | List predictors and parameters; append a name for detail. |
 
 ```sh
 cd out && ./build/preset/risc-e path/to/program.elf
 cd out && ./build/preset/risc-e --predictor gshare path/to/program.elf
-cd out && ./build/preset/risc-e --list-predictors
-```
-
-Every predictor declares its own tunables, set with
-`--param <predictor>.<parameter>=<value>`; `--list-predictors` shows what each
-accepts, with defaults and ranges. `0` disables the return-address stack:
-
-```sh
-cd out && ./build/preset/risc-e --predictor gshare --param gshare.history-bits=14 path/to/program.elf
-cd out && ./build/preset/risc-e --predictor two-bit --param two-bit.table-size=4096 --param two-bit.ras-depth=0 path/to/program.elf
 cd out && ./build/preset/risc-e --list-predictors
 ```
 
@@ -110,20 +118,24 @@ tournament [history-bits=10, ras-depth=16]
 ras [ras-depth=16]
 ```
 
-`--replay` executes the program once and then runs every available predictor
-over the recorded control-flow trace, printing a side-by-side comparison:
+`--comparison` executes the program once and then runs every available
+predictor over the recorded control-flow trace, printing a side-by-side
+comparison of hit rate **and** total cycles under the configured pipeline.
+Pass a predictor name to restrict the table to that one:
 
 ```sh
-cd out && ./build/preset/risc-e --replay path/to/program.elf
+cd out && ./build/preset/risc-e --comparison path/to/program.elf
+cd out && ./build/preset/risc-e --comparison gshare path/to/program.elf
 ```
 
 ```
-replay results (7 control transfers):
-  two-bit: 6/7 hits (85.7143%), cond 4/5, indirect 1/1
-  always-not-taken: 2/7 hits (28.5714%), cond 1/5, indirect 0/1
-  gshare: 6/7 hits (85.7143%), cond 4/5, indirect 1/1
-  tournament: 6/7 hits (85.7143%), cond 4/5, indirect 1/1
-  ras: 3/7 hits (42.8571%), cond 1/5, indirect 1/1
+comparison (7 branches, 5-stage pipeline (2-cycle mispredict penalty)):
+  predictor         hits      hit rate    cycles
+  two-bit           6/7       85.71%      18
+  always-not-taken  2/7       28.57%      26
+  gshare            6/7       85.71%      18
+  tournament        6/7       85.71%      18
+  ras               3/7       42.86%      24
 ```
 
 Assembly and C sources work too: if the argument ends in `.S`, `.s` or `.c`,
@@ -148,10 +160,39 @@ or `malloc` are not available.
 
 Predictions are target-aware: a control transfer (conditional branch, JAL,
 JALR) is a hit when the predicted next PC matches the actual next PC. Direct
-jumps (JAL) are trivially predictable and usually count as hits; the
-conditional and indirect (JALR) hit rates are reported separately.
+jumps (JAL) are trivially predictable and usually count as hits.
 
-### Adding a predictor
+### Cycle model
+
+The pipeline section converts mispredictions into cycle cost, not just counts.
+The `PipelineModel` (`include/risc-e/cpu/pipeline.hpp`) assumes a classic
+in-order pipeline: a branch resolves in the EX stage (stage 3), so a mispredict
+flushes the two younger fetched stages. The default 5-stage pipeline therefore
+costs **2 cycles per miss** (`penalty = stages - 3`). The model is
+parameterised:
+
+- `--pipeline-stages <N>` — pipeline depth (default `5`); the derived penalty
+  grows with depth (`--pipeline-stages 10` → 7-cycle penalty).
+- `--mispredict-penalty <N>` — override the per-miss penalty directly, for
+  designs that resolve branches earlier/later or hide some of the cost with a
+  BTB.
+
+The report shows `ideal cycles` (a perfect predictor, 1 IPC), `penalty cycles`
+(misses × penalty), `total cycles`, `CPI`, and `slowdown` vs the perfect
+baseline. It also replays the recorded trace through an `always-not-taken`
+predictor to report **cycles saved** — the real gain of the chosen predictor
+versus doing nothing.
+
+Every predictor declares its own tunables, set with
+`--param <predictor>.<parameter>=<value>`; `--list-predictors` shows what each
+accepts, with defaults and ranges. `0` disables the return-address stack:
+
+```sh
+cd out && ./build/preset/risc-e --predictor gshare --param gshare.history-bits=14 path/to/program.elf
+cd out && ./build/preset/risc-e --predictor two-bit --param two-bit.table-size=4096 --param two-bit.ras-depth=0 path/to/program.elf
+```
+
+## Adding a predictor
 
 Predictors implement the abstract `BranchPredictor` interface
 (`include/risc-e/cpu/branch_predictor.hpp`):
@@ -186,10 +227,51 @@ Each predictor lives in its own pair of files under
    tunables; the CLI and `--list-predictors` pick them up automatically,
 
 and it will automatically appear in `predictor_names()`, `--list-predictors`
-and `--replay`.
+and `--comparison`.
 
 `TwoBitSaturatingPredictor`, `AlwaysNotTakenPredictor`, `GsharePredictor`,
 `TournamentPredictor` and `RasPredictor` are the built-in examples.
+
+## Layout
+
+```
+include/risc-e/   public headers
+  cpu/                CPU state, halt reasons, trap interface, branch
+                      stats, the branch predictor interface, the pipeline
+                      model, and a predictors/ subdirectory with one file
+                      per predictor
+  decoder/            instruction decoding and the shared opcode
+                      constants (opcodes.hpp)
+  elf/                ELF loading
+  interpreter/        the interpreter
+  memory/             memory interface and physical memory
+  report/             report-section interface and per-topic sections
+src/                implementation, mirroring include/risc-e/
+  main.cpp            CLI frontend
+  cpu/                implementation (incl. the pipeline model)
+  decoder/            implementation
+  elf/                implementation
+  interpreter/        implementation
+  memory/             implementation
+  report/             implementation
+tests/
+  unit tests and RISC-V test programs
+tests/programs/
+  src/                RISC-V assembly and C sources
+  elf/                built ELF outputs (generated, not tracked)
+files/
+  input/exit.S        sample source
+  output/sample.elf   default program loaded when no argument is given
+CMakeLists.txt        build, library, and test registration
+CMakePresets.json     `preset`, `ci`, and `sanitize` presets
+.github/workflows/ci.yml   CI build + test
+```
+
+Each public header under `include/risc-e/` has a matching implementation in
+`src/`, except a few header-only ones that expose only inline constants and
+helpers (`decoder/opcodes.hpp`, plus the inline helper functions in
+`cpu/branch_predictor.hpp`). `main.cpp` is the only frontend and drives the
+interpreter directly.
 
 ## Test
 
