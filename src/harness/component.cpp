@@ -1,7 +1,7 @@
 #include "risc-e/harness/component.hpp"
 
-#include <iomanip>
-#include <sstream>
+#include <exception>
+#include <string>
 
 std::optional<long> parse_parameter_value(std::string_view value, std::string& error) {
     if (value.empty()) {
@@ -26,17 +26,4 @@ std::optional<long> parse_parameter_value(std::string_view value, std::string& e
         return std::nullopt;
     }
     return result;
-}
-
-std::string format_metric(const Metric& m) {
-    std::ostringstream out;
-    if (m.denominator.has_value()) {
-        out << std::get<uint64_t>(m.value) << "/" << *m.denominator;
-    } else if (std::holds_alternative<double>(m.value)) {
-        out << std::fixed << std::setprecision(2) << std::get<double>(m.value);
-    } else {
-        out << std::get<uint64_t>(m.value);
-    }
-    if (!m.unit.empty()) out << m.unit;
-    return out.str();
 }

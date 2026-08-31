@@ -2,6 +2,7 @@
 
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/profile.hpp"
 #include "risc-e/cpu/state.hpp"
 #include "risc-e/cpu/trap.hpp"
 #include "risc-e/decoder/decoded_instruction.hpp"
@@ -37,6 +38,10 @@ public:
     void set_branch_trace(bool enabled) { branch_stats_.trace_enabled = enabled; }
     void reset_branch_stats() { branch_stats_.reset(); }
 
+    const ProfileStats& profile_stats() const { return profile_stats_; }
+    ProfileStats& profile_stats() { return profile_stats_; }
+    void reset_profile_stats();
+
     void raiseTrap(TrapCause cause, uint32_t value = 0) override;
 
     MemoryInterface& memory() { return mem_; }
@@ -49,6 +54,13 @@ private:
 
     BranchPredictor* predictor_ = nullptr;
     BranchStats branch_stats_;
+    ProfileStats profile_stats_;
+
+    // Basic-block identification state: whether the next instruction starts a
+    // new block (set when the previous instruction was a control transfer),
+    // and the interned id of the block currently being executed.
+    bool block_entering_ = true;
+    uint32_t current_block_id_ = ProfileStats::kNoBlock;
 
     CPUstate state_;
     PhysicalMemory mem_;

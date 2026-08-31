@@ -2,6 +2,7 @@
 
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/pipeline.hpp"
+#include "risc-e/cpu/predictors/always_not_taken.hpp"
 #include "risc-e/harness/run_context.hpp"
 
 #include <ostream>
@@ -42,23 +43,20 @@ void BranchPredictor::report(std::ostream& out, const RunContext& ctx) const {
         << "  branches: " << s.control_total << '\n';
 }
 
-std::vector<Metric> BranchPredictor::metrics(const RunContext& ctx) {
-    std::vector<Metric> out;
-    if (ctx.branch_stats == nullptr || ctx.branch_stats->trace.empty()) return out;
+std::optional<CycleCost> BranchPredictor::cycle_cost(const RunContext& ctx) {
+    if (ctx.branch_stats == nullptr || ctx.branch_stats->trace.empty() ||
+        ctx.pipeline == nullptr) {
+        return std::nullopt;
+    }
 
+    // Total cycles under the active pipeline for this predictor vs the
+    // no-prediction baseline (always not-taken).
     const BranchStats replay = replay_trace(ctx.branch_stats->trace, *this);
-    const uint64_t predicted = replay.hits + replay.misses;
-    out.push_back(Metric{"hits", replay.hits, replay.control_total, ""});
-    if (predicted != 0) {
-        out.push_back(Metric{
-            "hit rate",
-            100.0 * static_cast<double>(replay.hits) / static_cast<double>(predicted),
-            std::nullopt, "%"});
-    }
-    if (ctx.pipeline != nullptr) {
-        const PipelineStats ps =
-            compute_pipeline_stats(ctx.instruction_count, replay.misses, *ctx.pipeline);
-        out.push_back(Metric{"cycles", static_cast<uint64_t>(ps.total_cycles), std::nullopt, ""});
-    }
-    return out;
+    AlwaysNotTakenPredictor baseline;
+    const BranchStats base = replay_trace(ctx.branch_stats->trace, baseline);
+    const uint64_t total =
+        compute_pipeline_stats(ctx.instruction_count, replay.misses, *ctx.pipeline).total_cycles;
+    const uint64_t baseline_cycles =
+        compute_pipeline_stats(ctx.instruction_count, base.misses, *ctx.pipeline).total_cycles;
+    return CycleCost{total, baseline_cycles, "no prediction"};
 }

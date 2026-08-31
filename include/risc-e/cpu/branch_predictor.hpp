@@ -87,10 +87,8 @@ public:
     std::string_view report_title() const override;
     void report(std::ostream& out, const RunContext& ctx) const override;
 
-    // Comparison metrics: replays the run's branch trace through this
-    // predictor and reports hits / hit rate / cycles under the active
-    // pipeline model. Empty when there is no recorded trace.
-    std::vector<Metric> metrics(const RunContext& ctx) override;
+    // Cost answer: cycles under the active pipeline, vs no prediction.
+    std::optional<CycleCost> cycle_cost(const RunContext& ctx) override;
 };
 
 // Shared 2-bit saturating counter updates (counters range 0..3, >= 2 = taken).

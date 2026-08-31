@@ -2,6 +2,7 @@
 #include "risc-e/cpu/pipeline.hpp"
 #include "risc-e/harness/component.hpp"
 #include "risc-e/harness/registry.hpp"
+#include "risc-e/harness/run_context.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -25,7 +26,8 @@ void expect(bool condition, const char* message) {
 int main() {
     // Types are declared at the type level, in registration order.
     const std::vector<std::string_view> types = component_types();
-    expect(types.size() == 2 && types[0] == "predictor" && types[1] == "pipeline",
+    expect(types.size() == 3 && types[0] == "predictor" && types[1] == "pipeline" &&
+               types[2] == "profile",
            "types register in declaration order");
 
     // Registry: construction and unknown-name rejection.
@@ -47,17 +49,16 @@ int main() {
     std::string error;
     expect(p->set_parameter("stages", "10", error), "pipeline stages accepted");
     expect(static_cast<PipelineModel*>(p.get())->stages == 10, "stages applied");
-    expect(p->set_parameter("mispredict-penalty", "4", error), "penalty accepted");
+    expect(p->set_parameter("stall-penalty", "4", error), "penalty accepted");
     expect(!p->set_parameter("stages", "0", error), "stages >= 1 enforced");
     expect(!p->set_parameter("bogus", "1", error), "unknown parameter rejected");
 
-    // Metric formatting is centralized in the harness.
-    expect(format_metric(Metric{"hits", uint64_t{6}, uint64_t{7}, ""}) == "6/7",
-           "ratio metric formats as n/m");
-    expect(format_metric(Metric{"hit rate", 85.71, std::nullopt, "%"}) == "85.71%",
-           "measurement formats with unit");
-    expect(format_metric(Metric{"cycles", uint64_t{18}, std::nullopt, ""}) == "18",
-           "count metric formats plain");
+    // The canonical cost hook defaults to "no answer" without a run.
+    RunContext empty_ctx;
+    expect(!make_component("two-bit")->cycle_cost(empty_ctx).has_value(),
+           "predictor cost needs a run");
+    expect(!make_component("pipeline")->cycle_cost(empty_ctx).has_value(),
+           "pipeline cost needs a run");
 
     std::printf("harness test: all passed\n");
     return 0;

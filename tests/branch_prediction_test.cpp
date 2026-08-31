@@ -1,5 +1,6 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
+#include "risc-e/cpu/pipeline.hpp"
 #include "risc-e/cpu/predictors/always_not_taken.hpp"
 #include "risc-e/cpu/predictors/gshare.hpp"
 #include "risc-e/cpu/predictors/ras.hpp"
@@ -8,6 +9,7 @@
 #include "risc-e/cpu/return_address_stack.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/harness/registry.hpp"
+#include "risc-e/harness/run_context.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
 #include <cstdint>
@@ -214,6 +216,26 @@ void test_parameters() {
     expect(rs.hits == 2 && rs.misses == 5, "ras with depth 0: the return misses");
 }
 
+void test_cycle_cost() {
+    TwoBitSaturatingPredictor predictor;
+    Interpreter interp(build_program());
+    interp.set_predictor(&predictor);
+    interp.set_branch_trace(true);
+    (void)interp.run();
+
+    RunContext ctx;
+    ctx.instruction_count = interp.instruction_count();
+    ctx.branch_stats = &interp.branch_stats();
+    PipelineModel pipeline;
+    ctx.pipeline = &pipeline;
+
+    const std::optional<CycleCost> cc = predictor.cycle_cost(ctx);
+    expect(cc.has_value(), "two-bit provides a cost answer");
+    expect(cc->total_cycles == 18 && cc->baseline_cycles == 26,
+           "two-bit: 18 cycles vs 26 with no prediction");
+    expect(cc->baseline_name == "no prediction", "cost baseline named");
+}
+
 } // namespace
 
 int main() {
@@ -226,6 +248,7 @@ int main() {
     test_return_address_stack();
     test_factory();
     test_parameters();
+    test_cycle_cost();
 
     std::printf("branch prediction tests passed\n");
     return 0;

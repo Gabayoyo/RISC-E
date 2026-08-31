@@ -2,6 +2,7 @@
 
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/pipeline.hpp"
+#include "risc-e/cpu/profile.hpp"
 #include "risc-e/cpu/predictors/always_not_taken.hpp"
 #include "risc-e/cpu/predictors/gshare.hpp"
 #include "risc-e/cpu/predictors/ras.hpp"
@@ -40,6 +41,7 @@ void register_all() {
 
     register_type("predictor");
     register_type("pipeline");
+    register_type("profile");
 
     register_component<BranchPredictor, TwoBitSaturatingPredictor>(
         "predictor", TwoBitSaturatingPredictor::kName,
@@ -59,6 +61,9 @@ void register_all() {
     register_component<PipelineModel, PipelineModel>(
         "pipeline", PipelineModel::kName,
         []() -> std::unique_ptr<Component> { return std::make_unique<PipelineModel>(); });
+    register_component<ProfileComponent, ProfileComponent>(
+        "profile", ProfileComponent::kName,
+        []() -> std::unique_ptr<Component> { return std::make_unique<ProfileComponent>(); });
 }
 
 } // namespace

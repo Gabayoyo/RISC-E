@@ -16,6 +16,10 @@ add_executable(harness_test harness_test.cpp)
 target_link_libraries(harness_test PRIVATE risc-e-core)
 add_test(NAME harness_test COMMAND harness_test)
 
+add_executable(profile_test profile_test.cpp)
+target_link_libraries(profile_test PRIVATE risc-e-core)
+add_test(NAME profile_test COMMAND profile_test)
+
 # Integration tests: RISC-V test programs compiled with a cross-compiler.
 # When no RISC-V GCC is on PATH these tests are skipped.
 
@@ -142,9 +146,19 @@ if(RISCV_GCC)
     set_tests_properties(branch_stats_always_not_taken
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2")
 
-    add_test(NAME comparison_all_predictors COMMAND risc-e --comparison ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME comparison_all_predictors
+             COMMAND risc-e --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(comparison_all_predictors
                          PROPERTIES PASS_REGULAR_EXPRESSION "two-bit")
+
+    add_test(NAME comparison_cycles
+             COMMAND risc-e --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(comparison_cycles
+                         PROPERTIES PASS_REGULAR_EXPRESSION "two-bit.*1.44x")
+
+    add_test(NAME comparison_requires_name
+             COMMAND risc-e --comparison ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(comparison_requires_name PROPERTIES WILL_FAIL TRUE)
 
     add_test(NAME comparison_single_predictor
              COMMAND risc-e --comparison gshare ${PROGRAM_ELF_DIR}/branches.elf)
@@ -161,20 +175,48 @@ if(RISCV_GCC)
     add_test(NAME pipeline_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_stats PROPERTIES PASS_REGULAR_EXPRESSION "pipeline")
 
+    add_test(NAME profile_report COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_report
+                         PROPERTIES PASS_REGULAR_EXPRESSION "basic blocks: 5")
+
+    add_test(NAME profile_report_numbers COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_report_numbers
+                         PROPERTIES PASS_REGULAR_EXPRESSION "instructions executed: 16")
+
+    add_test(NAME profile_comparison COMMAND risc-e --comparison icache
+             ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_comparison
+                         PROPERTIES PASS_REGULAR_EXPRESSION "icache.*1.56x")
+
+    add_test(NAME profile_cache COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_cache
+                         PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 150 \\(36.06%\\)")
+
+    add_test(NAME profile_cache_param COMMAND risc-e --param icache.miss-penalty=100
+             ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_cache_param
+                         PROPERTIES PASS_REGULAR_EXPRESSION "miss stalls: 500")
+
+    add_test(NAME profile_eviction
+             COMMAND risc-e --param icache.cache-capacity=4
+                     ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(profile_eviction
+                         PROPERTIES PASS_REGULAR_EXPRESSION "evictions: 3")
+
     add_test(NAME pipeline_penalty_5stage
              COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_5stage
-                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 2")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 2")
 
     add_test(NAME pipeline_penalty_10stage
              COMMAND risc-e --pipeline-stages 10 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_10stage
-                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 7")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
     add_test(NAME pipeline_penalty_override
-             COMMAND risc-e --mispredict-penalty 4 ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --stall-penalty 4 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_override
-                         PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 4")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 4")
 
     add_test(NAME mismatched_param_rejected
              COMMAND risc-e --predictor two-bit --param gshare.history-bits=8
@@ -194,7 +236,7 @@ if(RISCV_GCC)
 
     add_test(NAME pipeline_param COMMAND risc-e --param pipeline.stages=10
              ${PROGRAM_ELF_DIR}/branches.elf)
-    set_tests_properties(pipeline_param PROPERTIES PASS_REGULAR_EXPRESSION "penalty cycles: 7")
+    set_tests_properties(pipeline_param PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
     add_test(NAME list_predictor_detail COMMAND risc-e --list-predictors gshare)
     set_tests_properties(list_predictor_detail

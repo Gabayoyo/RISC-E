@@ -1,6 +1,7 @@
 #include "risc-e/cpu/branch_predictor.hpp"
 #include "risc-e/cpu/branch_stats.hpp"
 #include "risc-e/cpu/pipeline.hpp"
+#include "risc-e/cpu/profile.hpp"
 #include "risc-e/cpu/predictors/two_bit_saturating.hpp"
 #include "risc-e/elf/loader.hpp"
 #include "risc-e/harness/component.hpp"
@@ -168,7 +169,8 @@ bool validate_overrides(const std::vector<ParamOverride>& overrides, bool compar
             return false;
         }
         if (!comparison_mode && o.component != predictor_name &&
-            o.component != PipelineModel::kName) {
+            o.component != PipelineModel::kName &&
+            o.component != ProfileComponent::kName) {
             std::cerr << "RISC-E error: --param \"" << o.component << "." << o.name
                       << "\" targets \"" << o.component << "\", which is not active in this run"
                       << " (--predictor selected \"" << predictor_name << "\")\n";
@@ -249,66 +251,57 @@ bool print_component_list(const std::string& detail) {
 }
 
 // Compares components of one type over the recorded run: resets each, asks
-// for its metrics, and prints a side-by-side table. `only` restricts the set
-// to a single component. Metrics are self-describing (label/value/unit); the
-// harness only aligns labels and formats, never interprets the numbers.
+// for its cost answer, and prints the same three columns for every row —
+// cycles before (the type's reference baseline), cycles after (this design),
+// and speedup (before / after). `only` restricts the set to a single
+// component. Components that do not model time are skipped.
 void print_comparison_table(std::string_view type, const std::string& only,
                             const RunContext& ctx,
                             const std::vector<ParamOverride>& overrides) {
     std::vector<std::string_view> names = component_names(type);
     if (!only.empty()) names = {only};
 
-    std::vector<std::string> labels;
-    std::vector<std::pair<std::string, std::vector<Metric>>> rows;
+    struct Row {
+        std::string name;
+        uint64_t cycles_before;
+        uint64_t cycles_after;
+        double speedup;
+    };
+    std::vector<Row> rows;
+    std::string speedup_baseline;
     for (const std::string_view name : names) {
         auto comp = make_component(name);
         if (comp == nullptr) continue;
         apply_overrides(*comp, overrides);
         comp->reset();
-        std::vector<Metric> metrics = comp->metrics(ctx);
-        if (metrics.empty()) continue;
-        for (const Metric& m : metrics) {
-            if (std::find(labels.begin(), labels.end(), m.label) == labels.end()) {
-                labels.push_back(m.label);
-            }
-        }
-        rows.emplace_back(std::string(name), std::move(metrics));
+        const std::optional<CycleCost> cc = comp->cycle_cost(ctx);
+        if (!cc.has_value()) continue;
+        rows.push_back(Row{std::string(name), cc->baseline_cycles, cc->total_cycles,
+                           cc->baseline_cycles == 0
+                               ? 0.0
+                               : static_cast<double>(cc->baseline_cycles) /
+                                     static_cast<double>(cc->total_cycles)});
+        if (speedup_baseline.empty()) speedup_baseline = std::string(cc->baseline_name);
     }
 
     if (rows.empty()) {
-        std::cout << "comparison: no metrics for type \"" << type << "\"\n";
+        std::cout << "comparison: no cycle cost for type \"" << type << "\"\n";
         return;
     }
 
     const uint64_t events = ctx.branch_stats == nullptr ? 0 : ctx.branch_stats->trace.size();
     std::cout << "comparison (" << events << " events"
-              << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description()) << "):\n";
-    std::cout << "  " << std::left << std::setw(18) << "component";
-    for (std::size_t i = 0; i < labels.size(); ++i) {
-        if (i + 1 == labels.size()) {
-            std::cout << labels[i];
-        } else {
-            std::cout << std::setw(12) << labels[i];
-        }
-    }
-    std::cout << '\n';
-    for (const auto& [row_name, metrics] : rows) {
-        std::cout << "  " << std::setw(18) << row_name;
-        for (std::size_t i = 0; i < labels.size(); ++i) {
-            std::string text;
-            for (const Metric& m : metrics) {
-                if (m.label == labels[i]) {
-                    text = format_metric(m);
-                    break;
-                }
-            }
-            if (i + 1 == labels.size()) {
-                std::cout << text;
-            } else {
-                std::cout << std::setw(12) << text;
-            }
-        }
-        std::cout << '\n';
+              << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description());
+    if (!speedup_baseline.empty()) std::cout << "; speedup vs " << speedup_baseline;
+    std::cout << "):\n"
+              << "  " << std::left << std::setw(18) << "component"
+              << std::setw(15) << "cycles before" << std::setw(14) << "cycles after"
+              << "speedup\n";
+    for (const Row& r : rows) {
+        std::ostringstream speed;
+        speed << std::fixed << std::setprecision(2) << r.speedup << "x";
+        std::cout << "  " << std::setw(18) << r.name << std::setw(15) << r.cycles_before
+                  << std::setw(14) << r.cycles_after << speed.str() << '\n';
     }
 }
 
@@ -321,7 +314,7 @@ int main(int argc, char** argv) {
     PipelineModel pipeline;
     bool comparison_mode = false;
     bool saw_predictor = false;
-    std::string comparison_type = "predictor";
+    std::string comparison_type;
     std::string comparison_only;
 
     for (int i = 1; i < argc; ++i) {
@@ -335,14 +328,26 @@ int main(int argc, char** argv) {
             predictor_name = argv[++i];
             saw_predictor = true;
         } else if (arg == "--comparison") {
-            comparison_mode = true;
-            // Optional argument: compare just one component. Only consume the
-            // next token when it names a known component, so an ELF path
-            // following --comparison is never mistaken for a component name.
-            if (i + 1 < argc && make_component(argv[i + 1]) != nullptr) {
-                comparison_only = argv[++i];
-                comparison_type = std::string(make_component(comparison_only)->type());
+            // Requires a component or type name: the comparison never
+            // defaults to a type, so a bare --comparison (or an ELF path
+            // after it) is an error.
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --comparison requires a component or type name "
+                             "(--list)\n";
+                return 1;
             }
+            const std::string name = argv[++i];
+            if (make_component(name) != nullptr) {
+                comparison_only = name;
+                comparison_type = std::string(make_component(name)->type());
+            } else if (!component_names(name).empty()) {
+                comparison_type = name;  // compare the whole type
+            } else {
+                std::cerr << "RISC-E error: --comparison requires a component or type name; "
+                             "unknown \"" << name << "\" (--list)\n";
+                return 1;
+            }
+            comparison_mode = true;
         } else if (arg == "--pipeline-stages") {
             if (i + 1 >= argc) {
                 std::cerr << "RISC-E error: --pipeline-stages requires the number of stages "
@@ -358,9 +363,9 @@ int main(int argc, char** argv) {
                 return 1;
             }
             pipeline.stages = static_cast<int>(*stages);
-        } else if (arg == "--mispredict-penalty") {
+        } else if (arg == "--stall-penalty") {
             if (i + 1 >= argc) {
-                std::cerr << "RISC-E error: --mispredict-penalty requires a penalty in cycles "
+                std::cerr << "RISC-E error: --stall-penalty requires a penalty in cycles "
                              "(default derived from the pipeline depth)\n";
                 return 1;
             }
@@ -368,11 +373,11 @@ int main(int argc, char** argv) {
             std::string error;
             const std::optional<long> penalty = parse_parameter_value(value, error);
             if (!penalty.has_value()) {
-                std::cerr << "RISC-E error: --mispredict-penalty expects a non-negative integer "
+                std::cerr << "RISC-E error: --stall-penalty expects a non-negative integer "
                              "(got \"" << value << "\")\n";
                 return 1;
             }
-            pipeline.mispredict_penalty = static_cast<int>(*penalty);
+            pipeline.stall_penalty = static_cast<int>(*penalty);
         } else if (arg == "--param") {
             // arch: --param is component-namespaced ("<component>.<tunable>=<value>").
             // Predictors and the pipeline register today; memory and other
@@ -434,6 +439,9 @@ int main(int argc, char** argv) {
         }
         apply_overrides(pipeline, overrides);
 
+        ProfileComponent profile;
+        apply_overrides(profile, overrides);
+
         TempFileGuard temp_files;
         const std::string load_path =
             is_source_file(elf_path) ? compile_source(elf_path, temp_files) : elf_path;
@@ -449,6 +457,7 @@ int main(int argc, char** argv) {
         ctx.instruction_count = interpreter.instruction_count();
         ctx.branch_stats = &interpreter.branch_stats();
         ctx.pipeline = &pipeline;
+        ctx.profile_stats = &interpreter.profile_stats();
 
         if (comparison_mode) {
             print_comparison_table(comparison_type, comparison_only, ctx, overrides);
@@ -458,6 +467,9 @@ int main(int argc, char** argv) {
             std::cout << '\n';
             std::cout << pipeline.report_title() << '\n';
             pipeline.report(std::cout, ctx);
+            std::cout << '\n';
+            std::cout << profile.report_title() << '\n';
+            profile.report(std::cout, ctx);
             std::cout << '\n';
         }
 

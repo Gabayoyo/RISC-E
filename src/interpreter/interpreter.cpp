@@ -340,6 +340,9 @@ Interpreter::Interpreter(Interpreter&& other) noexcept
       inst_count_(other.inst_count_),
       predictor_(other.predictor_),
       branch_stats_(std::move(other.branch_stats_)),
+      profile_stats_(std::move(other.profile_stats_)),
+      block_entering_(other.block_entering_),
+      current_block_id_(other.current_block_id_),
       state_(other.state_),
       mem_(std::move(other.mem_))
 {
@@ -357,6 +360,7 @@ void Interpreter::reset() {
     state_.running     = true;
     state_.halt_reason = HaltReason::NONE;
     inst_count_        = 0;
+    reset_profile_stats();
 
     if (predictor_ != nullptr) {
         predictor_->reset();
@@ -376,7 +380,31 @@ void Interpreter::step() {
     if (!state_.running) return;  // fetch may have trapped
 
     const DecodedInstruction d = decode_raw_inst(inst, state_.pc);
+
+    // Profile the instruction. A basic block starts wherever control lands:
+    // the program entry, a branch/jump target, or the fall-through of a
+    // not-taken branch. Block boundaries are therefore detected by "the
+    // previous instruction was a control transfer"; the first instruction of
+    // the run always starts a block. (Dynamic identification: a block that is
+    // first reached by fall-through and later becomes a jump target is split
+    // on its first back-edge, so that first trip counts toward the
+    // predecessor block.)
+    profile_stats_.record_instruction(state_.pc);
+    if (block_entering_) {
+        current_block_id_ = profile_stats_.record_block_entry(state_.pc);
+        block_entering_ = false;
+    }
+    profile_stats_.record_block_instruction(current_block_id_);
+
     execute(d);
+
+    block_entering_ = d.opcode == opc::kBranch || d.opcode == opc::kJal || d.opcode == opc::kJalr;
+}
+
+void Interpreter::reset_profile_stats() {
+    profile_stats_.reset();
+    block_entering_ = true;
+    current_block_id_ = ProfileStats::kNoBlock;
 }
 
 void Interpreter::execute(const DecodedInstruction& d) {

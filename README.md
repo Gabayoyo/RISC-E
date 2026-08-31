@@ -36,15 +36,18 @@ exit code.
 - **Branch prediction** — pluggable predictors behind one interface, each with
   its own tunables, plus a trace replay for side-by-side comparison. Built-ins:
   `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras`.
-- **Pipeline model** — turns mispredictions into cycle cost with a configurable
-  depth and penalty.
+- **Pipeline model** — turns stall events into cycle cost with a configurable
+  depth and penalty; branch mispredictions are today's stall source, and the
+  report stays source-agnostic (no predictor names, worst-case baseline).
+- **Dynamic profiling** — identifies basic blocks at run time (interned IDs
+  keyed by entry PC, with execution and instruction counts) plus the static
+  distinct-instruction footprint. A simulated instruction cache then prices
+  the run's fetches — hits vs. misses with LRU eviction — and reports cycles
+  saved. Reported as its own section and comparable via
+  `--comparison icache`.
 - **Components** — predictors and the pipeline model plug into one harness
   interface: tunables (`--param`), a report section, and within-type
   comparison. Memory and other component types slot in the same way.
-
-> [!NOTE]
-> Not yet implemented: M extension, Zicsr (CSRs), compressed instructions
-> (RVC), IR lifting, and JIT code generation.
 
 ## Build
 
@@ -71,9 +74,10 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
-Every run prints two report sections — **branch prediction** (predictor name,
-hit/miss rate and counts, branches scored) and **pipeline** (the cycle cost of
-the run under a configurable pipeline model):
+Every run prints three report sections — **branch prediction** (predictor name,
+hit/miss rate and counts, branches scored), **pipeline** (the cycle cost of the
+run under a configurable pipeline model), and **profile** (block and
+instruction-cache statistics):
 
 ```
 branch prediction
@@ -85,17 +89,42 @@ branch prediction
   branches: 7
 
 pipeline
-  model: 5-stage pipeline (2-cycle mispredict penalty)
+  model: 5-stage pipeline (2-cycle stall penalty)
   instructions: 16
   ideal cycles: 16
-  penalty cycles: 2 (1 miss x 2 cycles)
+  stall cycles: 2 (1 stall event x 2 cycles)
   total cycles: 18
   CPI: 1.125
   slowdown: +12.50% vs perfect
-  cycles saved: 8 vs always-not-taken
+  cycles saved: 12 vs worst-case (7 stall events)
+
+profile
+  instructions executed: 16
+  distinct instructions: 8
+  basic blocks: 5
+  instruction cache (miss penalty 50, cache 64 instrs):
+    hits: 3 (37.50%)
+    misses: 5
+    compulsory misses: 5
+    evictions: 0
+    miss stalls: 250 (5 x 50 cycles)
+    total cycles: 266
+    no-cache baseline: 416
+    cycles saved: 150 (36.06%)
 
 exit code: 7
 ```
+
+Blocks are identified dynamically: a new block starts wherever a control
+transfer lands (program entry, branch/jump targets, not-taken fall-through).
+A block first reached by fall-through that later becomes a jump target is
+split on its first back-edge, so that first trip counts toward the
+predecessor block. The instruction-cache section is a microarchitectural
+model: blocks are the cache lines, fetched on first touch (compulsory miss),
+hitting while resident, and missing again after LRU eviction when the cache
+(`cache-capacity` instructions, `0` = unlimited) is too small. Each miss
+stalls the fetch stage for `miss-penalty` cycles, and cycles saved is
+measured against a machine with no instruction cache at all.
 
 ### CLI reference
 
@@ -104,8 +133,8 @@ exit code: 7
 | `--predictor <name>` | `two-bit` (default), `always-not-taken`, `gshare`, `tournament`, `ras` | Select the branch predictor. |
 | `--param <c>.<k>=<v>` | e.g. `gshare.history-bits=14` | Set a component tunable; repeatable. |
 | `--pipeline-stages <N>` | integer ≥ 1 (default `5`) | Pipeline depth; the derived penalty grows with depth. |
-| `--mispredict-penalty <N>` | non-negative integer | Override the per-miss penalty directly. |
-| `--comparison [name]` | optional component name | Compare components of one type over the recorded run; a name restricts the table to that component. |
+| `--stall-penalty <N>` | non-negative integer | Override the per-stall-event penalty directly. |
+| `--comparison <name>` | required component or type name | Compare components of one type over the recorded run; pass a component to restrict the table to it, or a type (e.g. `predictor`) for the whole family. Never defaults. |
 | `--list [name]` | optional component or type name | List components grouped by type; append a name for detail (`--list-predictors` is an alias). |
 
 ```sh
@@ -122,28 +151,38 @@ predictor:
   tournament [history-bits=10, ras-depth=16]
   ras [ras-depth=16]
 pipeline:
-  pipeline [stages=5, mispredict-penalty=0]
+  pipeline [stages=5, stall-penalty=0]
+profile:
+  icache [miss-penalty=50, cache-capacity=64]
 ```
 
-`--comparison` executes the program once and then runs every predictor over
-the recorded control-flow trace, printing a side-by-side comparison of hit
-rate **and** total cycles under the configured pipeline. Pass a component name
-to restrict the table to that one:
+`--comparison` requires a component or type name (it never defaults to a
+type). It executes the program once and then runs every component of the type
+over the recorded control-flow trace. Every comparison is the same three
+columns — **cycles before** (the type's reference baseline), **cycles after**
+(this design), and **speedup** (before / after):
 
 ```sh
-cd out && ./build/preset/risc-e --comparison path/to/program.elf
+cd out && ./build/preset/risc-e --comparison predictor path/to/program.elf
 cd out && ./build/preset/risc-e --comparison gshare path/to/program.elf
+cd out && ./build/preset/risc-e --comparison icache path/to/program.elf
 ```
 
 ```
-comparison (7 events, 5-stage pipeline (2-cycle mispredict penalty)):
-  component         hits        hit rate    cycles
-  two-bit           6/7         85.71%      18
-  always-not-taken  2/7         28.57%      26
-  gshare            6/7         85.71%      18
-  tournament        6/7         85.71%      18
-  ras               3/7         42.86%      24
+comparison (7 events, 5-stage pipeline (2-cycle stall penalty); speedup vs no prediction):
+  component         cycles before  cycles after   speedup
+  two-bit           26             18             1.44x
+  always-not-taken  26             26             1.00x
+  gshare            26             18             1.44x
+  tournament        26             18             1.44x
+  ras               26             24             1.08x
 ```
+
+The speedup baseline is a property of each type's cost model (`no prediction`
+for predictors, `no instruction cache` for the profile, `stall-free` for the
+pipeline), so the columns are comparable within a type but never across
+types. This is comparison-only: the per-run `report()` sections still print
+the full stats for every component.
 
 You can also pass a source file directly — `.S`, `.s` or `.c` — and the tool
 compiles it on the fly with a RISC-V cross-compiler from `PATH`
@@ -161,19 +200,49 @@ available.
 
 ### Cycle model
 
-The pipeline report turns mispredictions into cycle cost. The default model
-is a classic 5-stage in-order pipeline, where each mispredicted branch costs
-2 cycles; both depth and penalty are configurable:
+The pipeline report turns stall events into cycle cost. The default model is a
+classic 5-stage in-order pipeline, where each stalled control transfer costs
+2 cycles (a mispredicted branch is the stall source today, but the model and
+report never name one); both depth and penalty are configurable:
 
 - `--pipeline-stages <N>` — pipeline depth (default `5`); deeper pipelines cost
-  more per miss.
-- `--mispredict-penalty <N>` — set the per-miss cost directly.
+  more per stall event.
+- `--stall-penalty <N>` — set the per-stall-event cost directly.
 
 Both are also settable through the generic component path, e.g.
-`--param pipeline.stages=10`.
+`--param pipeline.stages=10` or `--param pipeline.stall-penalty=4`.
 
-The report shows ideal vs actual cycles, CPI, the slowdown against a perfect
-predictor, and **cycles saved** versus doing nothing (`always-not-taken`).
+The report shows ideal vs actual cycles, CPI, the slowdown against a
+stall-free pipeline, and **cycles saved** versus a worst-case pipeline that
+pays the penalty on every control transfer — a neutral baseline that depends
+only on the run, not on any predictor or policy.
+
+### Instruction cache
+
+The profile section simulates a small instruction cache over the run's block
+entries: blocks are the cache lines, fetched on first touch (compulsory
+miss), hitting while resident, and missing again after eviction. A miss
+stalls the fetch stage for `miss-penalty` cycles (default 50); the cache
+holds `cache-capacity` instructions (default 64, `0` = unlimited). When a new
+block does not fit, the least-recently-used block is evicted, so a block
+re-entered after eviction misses again — a capacity miss. **Cycles saved** is
+measured against a machine with no instruction cache, where every entry
+misses.
+
+The numbers are tunable rather than measured — a smaller cache forces
+eviction, and the miss penalty scales the cost:
+
+```sh
+cd out && ./build/preset/risc-e --param icache.cache-capacity=8 path/to/program.elf
+cd out && ./build/preset/risc-e --param icache.miss-penalty=100 path/to/program.elf
+```
+
+On `branch_loops.c` the default model reports a 95.65% hit rate and 80.62%
+cycles saved: the two hot loops stay resident, so only the nine compulsory
+misses stall.
+
+`--comparison icache` compares on the same three columns as every other
+type: cycles before (no instruction cache), cycles after, and speedup.
 
 ## Adding a component
 
@@ -217,7 +286,7 @@ The type's base class (`BranchPredictor`) is part of the registration, so a
 
 ### Adding a new type
 
-If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks:
+If you want to add a completely new overrideable component (e.g. PGO, memory model), you would have to extend `Component` directly and implement the hooks. The `icache` profile component is a live example of a type with a single implementation: `ProfileComponent` extends `Component`, records nothing itself, and only renders the stats the interpreter collected during the run (see `include/risc-e/cpu/profile.hpp`):
 
 ```cpp
 class MyMemoryBase : public Component {
@@ -233,13 +302,27 @@ public:
     void report(std::ostream& out, const RunContext& ctx) const override {
         // one output section for every run
     }
-
-    std::vector<Metric> metrics(const RunContext& ctx) override {
-        // named numbers for the --comparison table
-        return {{"hit rate", 85.71, std::nullopt, "%"}};
-    }
 };
 ```
+
+A component that models time also answers the comparison table by overriding
+`cycle_cost` — the run's cycles under this design, the reference design's
+cycles, and a short name for that baseline. `--comparison` then prints the
+same three columns for every row: **cycles before** (the reference), **cycles
+after** (this design), and **speedup** (before / after):
+
+```cpp
+    std::optional<CycleCost> cycle_cost(const RunContext& ctx) override {
+        // this design's cycles, and the reference design it is compared to
+        return CycleCost{total_cycles, baseline_cycles, "no memory cache"};
+    }
+```
+
+Every cost-modeling type picks one reference baseline, so the columns stay
+comparable within a type; components that do not model time leave the hook
+defaulted and are skipped by `--comparison`. The `report()` section, by
+contrast, is free-form — every run prints the full stats, independent of the
+comparison table.
 
 Then declare the type and register implementations into it:
 
@@ -262,7 +345,7 @@ its type's base class (and `Component`).
 ```
 include/risc-e/   public headers
   cpu/                CPU state, traps, branch stats, the predictor
-                      interface and pipeline model, predictors/
+                      interface, pipeline model, dynamic profile, predictors/
   decoder/            instruction decoding and opcode constants
   elf/                ELF loading
   interpreter/        the interpreter

@@ -25,25 +25,21 @@ struct ParamOverride {
     std::string value;
 };
 
-// One named, self-describing metric for the side-by-side comparison table.
-// The harness formats metrics but never interprets them: `unit` ("%", "ms",
-// "bytes", ...) is opaque, and `denominator` turns a count into an "n/m"
-// ratio. Counts and measurements differ only in the variant alternative, so
-// heterogeneous components (predictors, caches, PGO, ...) can all be
-// compared without a shared cost model.
-struct Metric {
-    std::string label;
-    std::variant<uint64_t, double> value;
-    std::optional<uint64_t> denominator;
-    std::string unit;
-};
-
 // Parses a non-negative integer parameter value. Returns nullopt and fills
 // `error` when the value is not a non-negative integer.
 std::optional<long> parse_parameter_value(std::string_view value, std::string& error);
 
-// Renders one metric for the comparison table (the single formatter).
-std::string format_metric(const Metric& m);
+// One component's cost answer over the recorded run, in cycles. total_cycles
+// is the run's cost under this component; baseline_cycles is the cost of a
+// reference design named by baseline_name ("no prediction", "no instruction
+// cache", ...). Every comparison is the same three columns derived from it:
+// cycles before (baseline), cycles after (this design), speedup
+// (baseline / total).
+struct CycleCost {
+    uint64_t total_cycles = 0;
+    uint64_t baseline_cycles = 0;
+    std::string_view baseline_name;
+};
 
 struct RunContext;
 
@@ -82,8 +78,11 @@ public:
         (void)ctx;
     }
 
-    // Comparison hook: named metrics for the side-by-side table. Non-const:
-    // trace-replay components recompute their state here; the driver resets
-    // first. An empty result means "not comparable".
-    virtual std::vector<Metric> metrics(const RunContext&) { return {}; }
+    // Comparison hook, non-const: trace-replay components recompute their
+    // state here; the driver resets first. The canonical cost answer for the
+    // cycles-before / cycles-after / speedup columns. Components that do not
+    // model time return nullopt and are skipped by the comparison. The
+    // baseline is a property of the component's model, so the columns are
+    // comparable within a type but never across types.
+    virtual std::optional<CycleCost> cycle_cost(const RunContext&) { return std::nullopt; }
 };
