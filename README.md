@@ -20,7 +20,7 @@ RISC-**Experiment** is a C++20 prototyper for RISC-V (RV32I) hardware components
 
 ## Quickstart
 
-Prerequisites: a C++20 compiler and CMake 3.10+. A RISC-V cross-compiler (`riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`, overridable with `RISCV_GCC`) is needed to build the sample programs and to run `.c`/`.S` sources.
+Prerequisites: a C++20 compiler and CMake 3.10+. A RISC-V cross-compiler (e.g. `riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`) is needed to build the sample programs and to run `.c`/`.S` sources.
 
 ```sh
 cmake -S . -B out/build/preset -DCMAKE_BUILD_TYPE=Debug
@@ -28,14 +28,16 @@ cmake --build out/build/preset
 cd out && ./build/preset/risc-e build/preset/tests/programs/elf/branches.elf
 ```
 
+The run's stats are saved as a JSON report under `results/` at the project root.
+
 > [!NOTE]
-> The sample programs are compiled at build time, so the Quickstart needs a RISC-V cross-compiler on `PATH`. Prebuilt ELF files run without it.
+> The sample programs are compiled at build time, so the  tool needs a RISC-V cross-compiler on `PATH`. Prebuilt ELF files run without it.
 
 ## Usage
 
 ### Running a program
 
-Pass an ELF file, or a `.c`/`.S` source that the tool compiles on the fly:
+Pass in an ELF file, or a `.c`/`.S` source:
 
 ```sh
 cd out && ./build/preset/risc-e path/to/program.elf
@@ -45,70 +47,41 @@ cd out && ./build/preset/risc-e ../tests/programs/assembly/branches.S
 
 The program's exit code is printed and returned as the process exit status. C programs run freestanding (no libc): `main()`'s return value becomes the exit code, and a small runtime header provides inline-asm wrappers for the emulated syscalls.
 
-### The report
+### Output
 
-Every run prints four sections — **pipeline** (the run summary: instructions, distinct instructions, basic blocks, data accesses, and the cycle model), **branch prediction**, **icache**, and **cache**:
+Each run's stats are saved as a JSON report to `results/<program>.json` (override with `--json <path>`). Pass `--print` to also print the full report to the terminal.
 
-```
-pipeline
-  model: 5-stage pipeline (2-cycle stall penalty)
-  instructions executed: 16
-  distinct instructions: 8
-  basic blocks: 5
-  data accesses: 0 (0 loads, 0 stores)
-  ideal cycles: 16
-  stall cycles: 2 (1 stall event x 2 cycles)
-  total cycles: 18
-  CPI: 1.125
-  slowdown: +12.50% vs perfect
-  cycles saved: 12 vs worst-case (7 stall events)
+### Disassembly
 
-branch prediction
-  predictor: two-bit
-  hit rate: 85.7143%
-  miss rate: 14.2857%
-  hits: 6
-  misses: 1
-  branches: 7
+An extra output option to output raw assembly + hot block counts after simulated execution. 
 
-icache
-  instruction cache (miss penalty 50, line 16 B, 1 set x 16 ways, LRU):
-    hits: 6 (75.00%)
-    misses: 2
-    compulsory misses: 2
-    conflict misses: 0
-    capacity misses: 0
-    evictions: 0
-  cycles saved: 300 (72.12%) vs no instruction cache — 3.59x
+The `--disasm` flag lists the loaded program as assembly, with `=>` marking the basic-block entry points the run actually executed and a `; block N, xM` annotation of their dynamic execution counts:
 
-cache
-  L1 (16 sets x 4 ways, line 16 B, write-back, 4-cycle hit):
-    hits: 0 (0.00%)
-    misses: 0
-    compulsory misses: 0
-    conflict misses: 0
-    capacity misses: 0
-    evictions: 0
-    writebacks: 0
-  L2 (32 sets x 8 ways, line 64 B, write-back, 14-cycle hit):
-    hits: 0 (0.00%)
-    misses: 0
-    compulsory misses: 0
-    conflict misses: 0
-    capacity misses: 0
-    evictions: 0
-    writebacks: 0
-  cycles saved: 0 (0.00%) vs L1 only — 0.00x
-
-exit code: 7
+```sh
+cd out && ./build/preset/risc-e --disasm path/to/program.elf
 ```
 
-Each cache section ends with one line summarising its cycle cost against its baseline (`no instruction cache` for the icache, `L1 only` for the data cache).
+```
+----------------- disassembly ------------------
+text segment: 0x0000f000 .. 0x00010020 (4128 bytes)
+=> 0x00010000:  addi t0, zero, 5   ; block 0, x1
+=> 0x00010004:  addi t0, t0, -1   ; block 4, x4
+   0x00010008:  bne t0, zero, 0x00010004
+=> 0x0001000c:  jal ra, 0x00010018   ; block 2, x1
+=> 0x00010010:  addi a7, zero, 93   ; block 1, x1
+   0x00010014:  ecall
+=> 0x00010018:  addi a0, zero, 7   ; block 3, x1
+   0x0001001c:  jalr zero, 0(ra)
+```
 
 ### CLI reference
 
 | Flag | Effect |
 | --- | --- |
+| `--print` | Print the verbose human-readable report (default is a JSON report saved to a file). |
+| `--verbose` | Add detail to the report: component config, the basic-block table, and per-type branch counts. |
+| `--disasm` | Print a static disassembly of the loaded program, annotated with basic-block markers. |
+| `--json <path>` | Write the JSON report to `<path>` instead of the default `results/<program>.json`. |
 | `--predictor <name>` | Select the branch predictor (default `two-bit`). |
 | `--icache <name>` | Select the instruction-cache design (default `icache-fa`). |
 | `--dcache <name>` | Select the data-cache design (default `l1-l2`). |
@@ -122,7 +95,7 @@ Tunables are namespaced by component: `--param gshare.history-bits=14`, `--param
 
 ### Comparing designs
 
-`--comparison` runs the program once, then replays the recorded trace through every design of the type, printing the same three columns for each row — cycles before (the type's baseline), cycles after, and speedup:
+`--comparison` runs the program once, then replays the recorded trace through every design of the type. Combined with `--print` the table is also shown on the terminal:
 
 ```sh
 cd out && ./build/preset/risc-e --comparison predictor path/to/program.elf
@@ -139,8 +112,6 @@ comparison (7 events, 5-stage pipeline (2-cycle stall penalty); speedup vs no pr
   tournament       26            18           1.44x
   ras              26            24           1.08x
 ```
-
-The baseline is a property of each type's cost model, so the columns are comparable within a type but never across types.
 
 ## Components
 
@@ -209,6 +180,9 @@ public:
     void report(std::ostream& out, const RunContext& ctx) const override {
         // one report section per run
     }
+    void write_json(std::ostream& out, const RunContext& ctx) const override {
+        // the component's section of the JSON report (optional)
+    }
 };
 ```
 
@@ -251,6 +225,7 @@ src/                implementation, mirroring include/risc-e/
 tests/              unit tests and RISC-V test programs
   programs/assembly/  RISC-V assembly sources (.S)
   programs/c/         C sources (.c)
+results/            generated JSON reports, at the project root (gitignored)
 CMakeLists.txt        core build (tests live in tests/CMakeLists.txt)
 CMakePresets.json     `preset`, `ci`, and `sanitize` presets
 ```
@@ -260,11 +235,3 @@ CMakePresets.json     `preset`, `ci`, and `sanitize` presets
 ```sh
 cd out && ctest --test-dir build/preset --output-on-failure
 ```
-
-The unit tests run without a cross-compiler. With one on `PATH`, the build also compiles the programs under `tests/programs/` and registers integration tests covering exit codes, printed output, memory faults, misalignment, and branch stats. The `sanitize` preset runs the whole suite under ASan + UBSan:
-
-```sh
-cmake -S . -B out/build/sanitize --preset sanitize
-```
-
-A GitHub Actions workflow builds and tests the default toolchain and the sanitize preset on every push.
