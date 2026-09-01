@@ -31,7 +31,8 @@ find_program(RISCV_GCC NAMES riscv64-unknown-elf-gcc riscv64-elf-gcc)
 
 if(RISCV_GCC)
     set(TEST_PROGRAMS exit stack heap wild_read wild_write misaligned branches)
-    set(PROGRAM_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/programs/src)
+    set(PROGRAM_ASM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/programs/assembly)
+    set(PROGRAM_C_DIR ${CMAKE_CURRENT_SOURCE_DIR}/programs/c)
     set(PROGRAM_ELF_DIR ${CMAKE_CURRENT_BINARY_DIR}/programs/elf)
 
     foreach(prog ${TEST_PROGRAMS})
@@ -40,8 +41,8 @@ if(RISCV_GCC)
             COMMAND ${CMAKE_COMMAND} -E make_directory ${PROGRAM_ELF_DIR}
             COMMAND ${RISCV_GCC} -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
                     -Wl,-Ttext=0x10000 -o ${PROGRAM_ELF_DIR}/${prog}.elf
-                    ${PROGRAM_SRC_DIR}/${prog}.S
-            DEPENDS ${PROGRAM_SRC_DIR}/${prog}.S
+                    ${PROGRAM_ASM_DIR}/${prog}.S
+            DEPENDS ${PROGRAM_ASM_DIR}/${prog}.S
         )
     endforeach()
 
@@ -79,55 +80,55 @@ if(RISCV_GCC)
     add_test(NAME branch_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
-    add_test(NAME branch_stats_from_source COMMAND risc-e ${PROGRAM_SRC_DIR}/branches.S)
+    add_test(NAME branch_stats_from_source COMMAND risc-e ${PROGRAM_ASM_DIR}/branches.S)
     set_tests_properties(branch_stats_from_source
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
-    add_test(NAME hello_c COMMAND risc-e ${PROGRAM_SRC_DIR}/hello.c)
+    add_test(NAME hello_c COMMAND risc-e ${PROGRAM_C_DIR}/hello.c)
     set_tests_properties(hello_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 42")
 
-    add_test(NAME hello_c_output COMMAND risc-e ${PROGRAM_SRC_DIR}/hello.c)
+    add_test(NAME hello_c_output COMMAND risc-e ${PROGRAM_C_DIR}/hello.c)
     set_tests_properties(hello_c_output PROPERTIES PASS_REGULAR_EXPRESSION "Hello from C")
 
-    add_test(NAME branchy_c COMMAND risc-e --predictor gshare ${PROGRAM_SRC_DIR}/branchy.c)
+    add_test(NAME branchy_c COMMAND risc-e --predictor gshare ${PROGRAM_C_DIR}/branchy.c)
     set_tests_properties(branchy_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 46")
 
-    add_test(NAME branchy_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branchy.c)
+    add_test(NAME branchy_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branchy.c)
     set_tests_properties(branchy_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
     # C programs with varying branch patterns
-    add_test(NAME branch_loops_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_loops.c)
+    add_test(NAME branch_loops_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_loops.c)
     set_tests_properties(branch_loops_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 5050")
 
-    add_test(NAME branch_data_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_data.c)
+    add_test(NAME branch_data_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_data.c)
     set_tests_properties(branch_data_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 10")
 
-    add_test(NAME branch_data_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_data.c)
+    add_test(NAME branch_data_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branch_data.c)
     set_tests_properties(branch_data_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
-    add_test(NAME branch_nested_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_nested.c)
+    add_test(NAME branch_nested_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_nested.c)
     set_tests_properties(branch_nested_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 36")
 
-    add_test(NAME branch_switch_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_switch.c)
+    add_test(NAME branch_switch_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_switch.c)
     set_tests_properties(branch_switch_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 144")
 
-    add_test(NAME branch_calls_c COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_calls.c)
+    add_test(NAME branch_calls_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_calls.c)
     set_tests_properties(branch_calls_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 55")
 
-    add_test(NAME branch_calls_c_stats COMMAND risc-e ${PROGRAM_SRC_DIR}/branch_calls.c)
+    add_test(NAME branch_calls_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branch_calls.c)
     set_tests_properties(branch_calls_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
     # General-purpose C programs, reusable for other emulator testing
-    add_test(NAME general_memory_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_memory.c)
+    add_test(NAME general_memory_c COMMAND risc-e ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(general_memory_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 108")
 
-    add_test(NAME general_arithmetic_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_arithmetic.c)
+    add_test(NAME general_arithmetic_c COMMAND risc-e ${PROGRAM_C_DIR}/general_arithmetic.c)
     set_tests_properties(general_arithmetic_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 9")
 
-    add_test(NAME general_heap_c COMMAND risc-e ${PROGRAM_SRC_DIR}/general_heap.c)
+    add_test(NAME general_heap_c COMMAND risc-e ${PROGRAM_C_DIR}/general_heap.c)
     set_tests_properties(general_heap_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 224")
 
     add_test(NAME branch_stats_gshare
@@ -200,7 +201,7 @@ if(RISCV_GCC)
     add_test(NAME icache_cache_param COMMAND risc-e --param icache-fa.miss-penalty=100
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_cache_param
-                         PROPERTIES PASS_REGULAR_EXPRESSION "miss stalls: 200")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 600")
 
     add_test(NAME icache_eviction
              COMMAND risc-e --param icache-fa.ways=1
@@ -257,25 +258,25 @@ if(RISCV_GCC)
                          PROPERTIES PASS_REGULAR_EXPRESSION "pattern-history")
 
     # Data caches (cache type: the L1+L2 hierarchy) and the backing store
-    add_test(NAME dcache_report COMMAND risc-e ${PROGRAM_SRC_DIR}/general_memory.c)
+    add_test(NAME dcache_report COMMAND risc-e ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_report
-                         PROPERTIES PASS_REGULAR_EXPRESSION "speedup vs L1-only")
+                         PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 516")
 
     add_test(NAME dcache_select COMMAND risc-e --dcache l1-l2
-             ${PROGRAM_SRC_DIR}/general_memory.c)
+             ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_select PROPERTIES PASS_REGULAR_EXPRESSION "write-back")
 
     add_test(NAME dcache_select_unknown COMMAND risc-e --dcache l1-nope
-             ${PROGRAM_SRC_DIR}/general_memory.c)
+             ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_select_unknown PROPERTIES WILL_FAIL TRUE)
 
     add_test(NAME dcache_param COMMAND risc-e --param l1-l2.l2-ways=2
-             ${PROGRAM_SRC_DIR}/general_memory.c)
+             ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_param
                          PROPERTIES PASS_REGULAR_EXPRESSION "L2 \\(32 sets x 2 ways")
 
     add_test(NAME dcache_comparison COMMAND risc-e --comparison cache
-             ${PROGRAM_SRC_DIR}/general_memory.c)
+             ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_comparison
                          PROPERTIES PASS_REGULAR_EXPRESSION "l1-l2.*[0-9].*x")
 endif()

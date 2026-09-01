@@ -534,11 +534,13 @@ int main(int argc, char** argv) {
         if (comparison_mode) {
             print_comparison_table(comparison_type, comparison_only, ctx, overrides);
         } else {
-            std::cout << predictor->report_title() << '\n';
-            predictor->report(std::cout, ctx);
-            std::cout << '\n';
+            // The pipeline section doubles as the run summary and always
+            // leads; the components only report their own behaviour.
             std::cout << pipeline.report_title() << '\n';
             pipeline.report(std::cout, ctx);
+            std::cout << '\n';
+            std::cout << predictor->report_title() << '\n';
+            predictor->report(std::cout, ctx);
             std::cout << '\n';
             std::cout << icache->report_title() << '\n';
             icache->report(std::cout, ctx);

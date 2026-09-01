@@ -77,9 +77,11 @@ void print_level(std::ostream& out, const std::string& label, const DCacheConfig
     out << "  " << label << " (" << config.sets << " set" << (config.sets == 1 ? "" : "s")
         << " x " << config.ways << " way" << (config.ways == 1 ? "" : "s") << ", line "
         << config.line_size << " B, write-back, " << hit_latency << "-cycle hit):\n"
-        << "    accesses: " << r.accesses << '\n'
         << "    hits: " << r.hits << " (" << fixed(r.hit_rate, 2) << "%)\n"
         << "    misses: " << r.misses << '\n'
+        << "    compulsory misses: " << r.compulsory_misses << '\n'
+        << "    conflict misses: " << r.conflict_misses << '\n'
+        << "    capacity misses: " << r.capacity_misses << '\n'
         << "    evictions: " << r.evictions << '\n'
         << "    writebacks: " << r.writebacks << '\n';
 }
@@ -165,14 +167,14 @@ void L1L2Cache::report(std::ostream& out, const RunContext& ctx) const {
 
     const double speedup =
         baseline == 0 ? 0.0 : static_cast<double>(baseline) / static_cast<double>(total);
+    const int64_t saved = static_cast<int64_t>(baseline) - static_cast<int64_t>(total);
+    const double saved_pct =
+        baseline == 0 ? 0.0 : 100.0 * static_cast<double>(saved) / static_cast<double>(baseline);
 
-    out << "  accesses: " << tr.records.size() << " (" << tr.loads << " loads, " << tr.stores
-        << " stores)\n";
     print_level(out, "L1", l1, r1, static_cast<uint64_t>(l1.hit_latency));
     print_level(out, "L2", l2, r2, static_cast<uint64_t>(l2.hit_latency));
-    out << "  total cycles: " << total << '\n'
-        << "  L1-only baseline: " << baseline << '\n'
-        << "  speedup vs L1-only: " << fixed(speedup, 2) << "x\n";
+    out << "  cycles saved: " << saved << " (" << fixed(saved_pct, 2) << "%) vs L1 only \u2014 "
+        << fixed(speedup, 2) << "x\n";
     if (tr.records.size() == DCacheStats::kMaxRecords) {
         out << "  note: access sequence truncated at " << DCacheStats::kMaxRecords
             << "; later accesses not simulated\n";

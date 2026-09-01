@@ -88,14 +88,28 @@ cd out && ./build/preset/risc-e [path-to.elf]
 Without an argument the interpreter loads `../files/output/sample.elf`.
 The program's exit status is printed, and the process exits with the same code.
 
-Every run prints five report sections — **branch prediction** (predictor name,
-hit/miss rate and counts, branches scored), **pipeline** (the cycle cost of the
-run under a configurable pipeline model), **icache** (block statistics plus
-the selected cache design's hits, misses and cycles), **cache** (the L1+L2
-hierarchy's hits, misses and cycles at both levels), and **memory** (the
-backing DRAM store's cost):
+Every run prints four report sections — **pipeline** (always first: the run
+summary with the instructions, distinct instructions, basic blocks, data
+accesses, and the pipeline model's cycle cost), **branch prediction**
+(predictor name, hit/miss rate and counts), **icache** (the selected
+instruction-cache design's hits, misses and miss types), and **cache** (the
+L1+L2 hierarchy's hits, misses and miss types at both levels). Each cache
+section ends with one line summarising its cost against its baseline:
 
 ```
+pipeline
+  model: 5-stage pipeline (2-cycle stall penalty)
+  instructions executed: 16
+  distinct instructions: 8
+  basic blocks: 5
+  data accesses: 0 (0 loads, 0 stores)
+  ideal cycles: 16
+  stall cycles: 2 (1 stall event x 2 cycles)
+  total cycles: 18
+  CPI: 1.125
+  slowdown: +12.50% vs perfect
+  cycles saved: 12 vs worst-case (7 stall events)
+
 branch prediction
   predictor: two-bit
   hit rate: 85.7143%
@@ -104,20 +118,7 @@ branch prediction
   misses: 1
   branches: 7
 
-pipeline
-  model: 5-stage pipeline (2-cycle stall penalty)
-  instructions: 16
-  ideal cycles: 16
-  stall cycles: 2 (1 stall event x 2 cycles)
-  total cycles: 18
-  CPI: 1.125
-  slowdown: +12.50% vs perfect
-  cycles saved: 12 vs worst-case (7 stall events)
-
 icache
-  instructions executed: 16
-  distinct instructions: 8
-  basic blocks: 5
   instruction cache (miss penalty 50, line 16 B, 1 set x 16 ways, LRU):
     hits: 6 (75.00%)
     misses: 2
@@ -125,10 +126,26 @@ icache
     conflict misses: 0
     capacity misses: 0
     evictions: 0
-    miss stalls: 100 (2 x 50 cycles)
-    total cycles: 116
-    no-cache baseline: 416
-    cycles saved: 300 (72.12%)
+  cycles saved: 300 (72.12%) vs no instruction cache — 3.59x
+
+cache
+  L1 (16 sets x 4 ways, line 16 B, write-back, 4-cycle hit):
+    hits: 0 (0.00%)
+    misses: 0
+    compulsory misses: 0
+    conflict misses: 0
+    capacity misses: 0
+    evictions: 0
+    writebacks: 0
+  L2 (32 sets x 8 ways, line 64 B, write-back, 14-cycle hit):
+    hits: 0 (0.00%)
+    misses: 0
+    compulsory misses: 0
+    conflict misses: 0
+    capacity misses: 0
+    evictions: 0
+    writebacks: 0
+  cycles saved: 0 (0.00%) vs L1 only — 0.00x
 
 exit code: 7
 ```
@@ -225,8 +242,8 @@ compiles it on the fly with a RISC-V cross-compiler from `PATH`
 (`riscv64-unknown-elf-gcc` or `riscv64-elf-gcc`, overridable with `RISCV_GCC`):
 
 ```sh
-cd out && ./build/preset/risc-e ../tests/programs/src/branches.S
-cd out && ./build/preset/risc-e ../tests/programs/src/branchy.c
+cd out && ./build/preset/risc-e ../tests/programs/assembly/branches.S
+cd out && ./build/preset/risc-e ../tests/programs/c/branchy.c
 ```
 
 C programs run freestanding (no libc): `main()`'s return value becomes the
@@ -411,7 +428,8 @@ src/                implementation, mirroring include/risc-e/
 tests/              unit tests and RISC-V test programs
   CMakeLists.txt      all test registration
 tests/programs/
-  src/                RISC-V assembly and C sources
+  assembly/           RISC-V assembly sources (.S)
+  c/                  C sources (.c)
   elf/                built ELF outputs (generated, not tracked)
 files/
   output/sample.elf   default program loaded when no argument is given
@@ -426,7 +444,8 @@ Most public headers under `include/risc-e/` have a matching implementation in
 ## Test
 
 With a RISC-V cross-compiler on `PATH`, the build also compiles the programs
-under `tests/programs/src/` and registers integration tests that check printed
+under `tests/programs/assembly/` and `tests/programs/c/` and registers
+integration tests that check printed
 output, exit codes, and branch stats.
 
 ```sh

@@ -1,5 +1,6 @@
 #include "risc-e/component/pipeline/pipeline.hpp"
 
+#include "risc-e/component/icache/icache_stats.hpp"
 #include "risc-e/component/predictor/branch_stats.hpp"
 #include "risc-e/component/run_context.hpp"
 
@@ -85,9 +86,21 @@ void PipelineModel::report(std::ostream& out, const RunContext& ctx) const {
     const PipelineStats ps = compute_pipeline_stats(ctx.instruction_count, stall_events, *this);
     const int penalty = penalty_cycles();
 
+    // This section doubles as the run summary: the run-level stats every
+    // component would otherwise repeat live here, and the components only
+    // report their own behaviour.
     out << "  model: " << description() << '\n'
-        << "  instructions: " << ps.instructions << '\n'
-        << "  ideal cycles: " << ps.ideal_cycles << '\n'
+        << "  instructions executed: " << ps.instructions << '\n';
+    if (ctx.profile_stats != nullptr) {
+        out << "  distinct instructions: " << ctx.profile_stats->seen_pcs.size() << '\n'
+            << "  basic blocks: " << ctx.profile_stats->blocks.size() << '\n';
+    }
+    if (ctx.access_trace != nullptr) {
+        out << "  data accesses: " << ctx.access_trace->records.size() << " ("
+            << ctx.access_trace->loads << " loads, " << ctx.access_trace->stores
+            << " stores)\n";
+    }
+    out << "  ideal cycles: " << ps.ideal_cycles << '\n'
         << "  stall cycles: " << ps.penalty_cycles << " (" << stall_events << " stall event"
         << (stall_events == 1 ? "" : "s") << " x " << penalty << " cycles)\n"
         << "  total cycles: " << ps.total_cycles << '\n';

@@ -216,10 +216,6 @@ void ICacheComponent::report(std::ostream& out, const RunContext& ctx) const {
     if (ctx.profile_stats == nullptr) return;
     const ICacheStats& s = *ctx.profile_stats;
 
-    out << "  instructions executed: " << s.instructions << '\n'
-        << "  distinct instructions: " << s.seen_pcs.size() << '\n'
-        << "  basic blocks: " << s.blocks.size() << '\n';
-
     const ICacheResult t = simulate_icache(s, config);
     out << "  instruction cache (miss penalty " << config.miss_penalty << ", line "
         << config.line_size << " B, " << config.sets << " set" << (config.sets == 1 ? "" : "s")
@@ -235,12 +231,12 @@ void ICacheComponent::report(std::ostream& out, const RunContext& ctx) const {
     if (config.prefetch) {
         out << "    prefetches: " << t.prefetches << '\n';
     }
-    out << "    miss stalls: " << t.miss_stalls << " (" << t.misses << " x "
-        << config.miss_penalty << " cycles)\n"
-        << "    total cycles: " << t.total_cycles << '\n'
-        << "    no-cache baseline: " << t.baseline_cycles << '\n'
-        << "    cycles saved: " << t.saved_cycles << " (" << fixed(t.saved_pct, 2)
-        << "%)\n";
+    const double speedup =
+        t.baseline_cycles == 0
+            ? 0.0
+            : static_cast<double>(t.baseline_cycles) / static_cast<double>(t.total_cycles);
+    out << "  cycles saved: " << t.saved_cycles << " (" << fixed(t.saved_pct, 2)
+        << "%) vs no instruction cache \u2014 " << fixed(speedup, 2) << "x\n";
     if (s.entry_sequence.size() == ICacheStats::kMaxEntries) {
         out << "    note: entry sequence truncated at " << ICacheStats::kMaxEntries
             << "; later entries not simulated\n";
