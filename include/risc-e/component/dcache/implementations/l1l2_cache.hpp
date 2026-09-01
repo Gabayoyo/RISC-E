@@ -30,6 +30,7 @@ public:
 
     std::string_view report_title() const override { return "cache"; }
     void report(std::ostream& out, const RunContext& ctx) const override;
+    void write_json(std::ostream& out, const RunContext& ctx) const override;
 
     // Cost answer: L1+L2 cycles vs the L1-only baseline.
     std::optional<CycleCost> cycle_cost(const RunContext& ctx) override;

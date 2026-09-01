@@ -36,6 +36,7 @@ struct PipelineModel : public Component {
 
     std::string_view report_title() const override;
     void report(std::ostream& out, const RunContext& ctx) const override;
+    void write_json(std::ostream& out, const RunContext& ctx) const override;
 
     // Cost answer: cycles under this model, vs a stall-free pipeline.
     std::optional<CycleCost> cycle_cost(const RunContext& ctx) override;

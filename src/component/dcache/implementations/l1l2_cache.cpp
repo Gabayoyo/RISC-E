@@ -86,6 +86,30 @@ void print_level(std::ostream& out, const std::string& label, const DCacheConfig
         << "    writebacks: " << r.writebacks << '\n';
 }
 
+// One cache level as a JSON object: its config (verbose only) plus the
+// result fields the printed report shows.
+void write_level_json(std::ostream& out, const DCacheConfig& config, const DCacheResult& r,
+                      bool verbose) {
+    out << "{";
+    // Config is verbose detail: the default report keeps headline stats.
+    if (verbose) {
+        out << "\"config\": {\"hit_latency\": " << config.hit_latency
+            << ", \"miss_penalty\": " << config.miss_penalty << ", \"line_size\": " << config.line_size
+            << ", \"sets\": " << config.sets << ", \"ways\": " << config.ways
+            << ", \"write_buffer_depth\": " << config.write_buffer_depth
+            << ", \"write_policy\": \""
+            << (config.write_policy == WritePolicy::WriteBack ? "write-back" : "write-through")
+            << "\", \"write_allocate\": "
+            << (config.write_allocate == WriteAllocate::WriteAllocate ? "true" : "false")
+            << "}, ";
+    }
+    out << "\"hits\": " << r.hits << ", \"hit_rate\": " << fixed(r.hit_rate, 6)
+        << ", \"misses\": " << r.misses << ", \"compulsory_misses\": " << r.compulsory_misses
+        << ", \"conflict_misses\": " << r.conflict_misses
+        << ", \"capacity_misses\": " << r.capacity_misses << ", \"evictions\": " << r.evictions
+        << ", \"writebacks\": " << r.writebacks << "}";
+}
+
 // Simulates the L1->L2 chain (L1's refills and dirty evictions are forwarded
 // to L2, so L1 only pays its hits) and the L1-only baseline, where every L1
 // miss and writeback pays DRAM directly.
@@ -183,4 +207,28 @@ void L1L2Cache::report(std::ostream& out, const RunContext& ctx) const {
         out << "  note: access sequence truncated at " << DCacheStats::kMaxRecords
             << "; later accesses not simulated\n";
     }
+}
+
+void L1L2Cache::write_json(std::ostream& out, const RunContext& ctx) const {
+    if (ctx.access_trace == nullptr) {
+        out << "{}";
+        return;
+    }
+    const HierarchyResult h = simulate_hierarchy(l1, l2, *ctx.access_trace);
+    const int64_t saved = static_cast<int64_t>(h.baseline_cycles) - static_cast<int64_t>(h.total_cycles);
+    const double saved_pct = h.baseline_cycles == 0
+                                 ? 0.0
+                                 : 100.0 * static_cast<double>(saved) /
+                                       static_cast<double>(h.baseline_cycles);
+    const double speedup = h.baseline_cycles == 0
+                               ? 0.0
+                               : static_cast<double>(h.baseline_cycles) /
+                                     static_cast<double>(h.total_cycles);
+
+    out << "{\"l1\":";
+    write_level_json(out, l1, h.l1, ctx.verbose);
+    out << ",\"l2\":";
+    write_level_json(out, l2, h.l2, ctx.verbose);
+    out << ",\"cycles_saved\":" << saved << ",\"saved_pct\":" << fixed(saved_pct, 6)
+        << ",\"speedup\":" << fixed(speedup, 6) << "}";
 }

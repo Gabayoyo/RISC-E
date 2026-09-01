@@ -6,53 +6,11 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <utility>
-#include <vector>
 
 namespace opc = opcode;  // short alias for the shared opcode constants
 
 namespace {
-
-constexpr uint8_t F3_BEQ  = 0b000;
-constexpr uint8_t F3_BNE  = 0b001;
-constexpr uint8_t F3_BLT  = 0b100;
-constexpr uint8_t F3_BGE  = 0b101;
-constexpr uint8_t F3_BLTU = 0b110;
-constexpr uint8_t F3_BGEU = 0b111;
-
-constexpr uint8_t F3_ADDI  = 0b000;
-constexpr uint8_t F3_SLTI  = 0b010;
-constexpr uint8_t F3_SLTIU = 0b011;
-constexpr uint8_t F3_XORI  = 0b100;
-constexpr uint8_t F3_ORI   = 0b110;
-constexpr uint8_t F3_ANDI  = 0b111;
-constexpr uint8_t F3_SLLI  = 0b001;
-constexpr uint8_t F3_SRLI  = 0b101;  // SRAI shares funct3 with SRLI
-
-constexpr uint8_t F7_SLLI = 0x00;
-constexpr uint8_t F7_SRAI = 0x20;
-
-constexpr uint8_t F3_ADD_SUB = 0b000;
-constexpr uint8_t F3_SLL     = 0b001;
-constexpr uint8_t F3_SLT     = 0b010;
-constexpr uint8_t F3_SLTU    = 0b011;
-constexpr uint8_t F3_XOR     = 0b100;
-constexpr uint8_t F3_SRL_SRA = 0b101;
-constexpr uint8_t F3_OR      = 0b110;
-constexpr uint8_t F3_AND     = 0b111;
-
-constexpr uint8_t F7_SUB_SRA = 0x20;
-
-constexpr uint8_t F3_LB  = 0b000;
-constexpr uint8_t F3_LH  = 0b001;
-constexpr uint8_t F3_LW  = 0b010;
-constexpr uint8_t F3_LBU = 0b100;
-constexpr uint8_t F3_LHU = 0b101;
-
-constexpr uint8_t F3_SB = 0b000;
-constexpr uint8_t F3_SH = 0b001;
-constexpr uint8_t F3_SW = 0b010;
 
 constexpr uint32_t kInitialStackPointer = 0x80000000;
 constexpr uint32_t kStackSize           = 8u * 1024u * 1024u;  // 8 MiB
@@ -346,6 +304,7 @@ Interpreter::Interpreter(Interpreter&& other) noexcept
       branch_stats_(std::move(other.branch_stats_)),
       profile_stats_(std::move(other.profile_stats_)),
       access_trace_(std::move(other.access_trace_)),
+      program_output_(std::move(other.program_output_)),
       block_entering_(other.block_entering_),
       current_block_id_(other.current_block_id_),
       state_(other.state_),
@@ -497,15 +456,11 @@ void Interpreter::handle_trap() {
                     const uint32_t count = state_.x[12];
 
                     if (fd == 1 || fd == 2) {
-                        std::vector<uint8_t> bytes;
-                        bytes.reserve(count);
                         for (uint32_t i = 0; i < count; ++i) {
                             const uint8_t byte = state_.mem->load8(buf + i);
                             if (!state_.running) return;  // fault inside the buffer halted execution
-                            bytes.push_back(byte);
+                            program_output_.push_back(static_cast<char>(byte));
                         }
-                        std::fwrite(bytes.data(), 1, bytes.size(), stdout);
-                        std::fflush(stdout);
                         state_.x[10] = count;
                     } else {
                         state_.x[10] = static_cast<uint32_t>(-1);

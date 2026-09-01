@@ -87,6 +87,7 @@ public:
     // Report section: predictor name, hit/miss rates and counts.
     std::string_view report_title() const override;
     void report(std::ostream& out, const RunContext& ctx) const override;
+    void write_json(std::ostream& out, const RunContext& ctx) const override;
 
     // Cost answer: cycles under the active pipeline, vs no prediction.
     std::optional<CycleCost> cycle_cost(const RunContext& ctx) override;

@@ -9,6 +9,7 @@
 #include "risc-e/component/component.hpp"
 #include "risc-e/component/registry.hpp"
 #include "risc-e/component/run_context.hpp"
+#include "risc-e/disasm/disasm.hpp"
 #include "risc-e/interpreter/interpreter.hpp"
 
 #include "runtime_files.hpp"
@@ -253,25 +254,126 @@ bool print_component_list(const std::string& detail) {
     return false;
 }
 
+// Prints a section separator: a fixed-width line of dashes with the label
+// centered, e.g. "------------------- output -------------------".
+void print_section_header(std::string_view label) {
+    constexpr std::size_t kWidth = 48;
+    const std::string text = " " + std::string(label) + " ";
+    const std::size_t left = (kWidth - text.size()) / 2;
+    std::cout << std::string(left, '-') << text
+              << std::string(kWidth - text.size() - left, '-') << '\n';
+}
+
+// Pretty-prints a JSON document: re-emits it with two-space indentation.
+// The input is assumed valid JSON (it is machine-generated here); strings are
+// copied verbatim, so escaped quotes and control characters stay intact.
+std::string pretty_json(std::string_view json) {
+    std::string out;
+    out.reserve(json.size() + json.size() / 8);
+    std::vector<bool> empty_scopes;  // per open bracket: no content emitted yet
+    bool in_string = false;
+    bool escape = false;
+    int depth = 0;
+
+    const auto indent = [&] {
+        out.push_back('\n');
+        out.append(static_cast<std::size_t>(depth) * 2, ' ');
+    };
+    const auto mark_content = [&] {
+        if (!empty_scopes.empty()) empty_scopes.back() = false;
+    };
+
+    for (const char c : json) {
+        if (in_string) {
+            out.push_back(c);
+            if (escape) {
+                escape = false;
+            } else if (c == '\\') {
+                escape = true;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        switch (c) {
+            case '"':
+                in_string = true;
+                mark_content();
+                out.push_back(c);
+                break;
+            case '{':
+            case '[':
+                out.push_back(c);
+                ++depth;
+                indent();
+                empty_scopes.push_back(true);
+                break;
+            case '}':
+            case ']':
+                --depth;
+                if (empty_scopes.back()) {
+                    // Empty object/array: drop the newline+indent after the open.
+                    while (!out.empty() && (out.back() == ' ' || out.back() == '\n')) {
+                        out.pop_back();
+                    }
+                    out.push_back(c);
+                } else {
+                    indent();
+                    out.push_back(c);
+                }
+                empty_scopes.pop_back();
+                mark_content();
+                break;
+            case ',':
+                out.push_back(c);
+                indent();
+                break;
+            case ':':
+                out.push_back(':');
+                out.push_back(' ');
+                break;
+            case ' ':
+            case '\n':
+            case '\t':
+            case '\r':
+                break;  // drop source whitespace
+            default:
+                mark_content();
+                out.push_back(c);
+                break;
+        }
+    }
+    return out;
+}
+
+// One row of a comparison: the same three columns as the printed table.
+struct ComparisonRow {
+    std::string name;
+    uint64_t cycles_before;
+    uint64_t cycles_after;
+    double speedup;
+};
+
+struct ComparisonResult {
+    std::string type;
+    std::string baseline;
+    std::vector<ComparisonRow> rows;
+};
+
 // Compares components of one type over the recorded run: resets each, asks
-// for its cost answer, and prints the same three columns for every row —
+// for its cost answer, and keeps the same three columns for every row —
 // cycles before (the type's reference baseline), cycles after (this design),
 // and speedup (before / after). `only` restricts the set to a single
 // component. Components that do not model time are skipped.
-void print_comparison_table(std::string_view type, const std::string& only,
-                            const RunContext& ctx,
-                            const std::vector<ParamOverride>& overrides) {
+ComparisonResult build_comparison_rows(std::string_view type, const std::string& only,
+                                       const RunContext& ctx,
+                                       const std::vector<ParamOverride>& overrides) {
+    ComparisonResult result;
+    result.type = std::string(type);
+
     std::vector<std::string_view> names = component_names(type);
     if (!only.empty()) names = {only};
 
-    struct Row {
-        std::string name;
-        uint64_t cycles_before;
-        uint64_t cycles_after;
-        double speedup;
-    };
-    std::vector<Row> rows;
-    std::string speedup_baseline;
     for (const std::string_view name : names) {
         auto comp = make_component(name);
         if (comp == nullptr) continue;
@@ -279,29 +381,33 @@ void print_comparison_table(std::string_view type, const std::string& only,
         comp->reset();
         const std::optional<CycleCost> cc = comp->cycle_cost(ctx);
         if (!cc.has_value()) continue;
-        rows.push_back(Row{std::string(name), cc->baseline_cycles, cc->total_cycles,
-                           cc->baseline_cycles == 0
-                               ? 0.0
-                               : static_cast<double>(cc->baseline_cycles) /
-                                     static_cast<double>(cc->total_cycles)});
-        if (speedup_baseline.empty()) speedup_baseline = std::string(cc->baseline_name);
+        result.rows.push_back(ComparisonRow{
+            std::string(name), cc->baseline_cycles, cc->total_cycles,
+            cc->baseline_cycles == 0
+                ? 0.0
+                : static_cast<double>(cc->baseline_cycles) /
+                      static_cast<double>(cc->total_cycles)});
+        if (result.baseline.empty()) result.baseline = std::string(cc->baseline_name);
     }
+    return result;
+}
 
-    if (rows.empty()) {
-        std::cout << "comparison: no cycle cost for type \"" << type << "\"\n";
+void print_comparison_table(const ComparisonResult& result, const RunContext& ctx) {
+    if (result.rows.empty()) {
+        std::cout << "comparison: no cycle cost for type \"" << result.type << "\"\n";
         return;
     }
 
     const uint64_t events = ctx.branch_stats == nullptr ? 0 : ctx.branch_stats->trace.size();
     std::cout << "comparison (" << events << " events"
               << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description());
-    if (!speedup_baseline.empty()) std::cout << "; speedup vs " << speedup_baseline;
+    if (!result.baseline.empty()) std::cout << "; speedup vs " << result.baseline;
 
     // Columns size to the widest cell; the +1 keeps a visible gap.
     std::size_t name_w = std::string("component").size();
     std::size_t before_w = std::string("cycles before").size();
     std::size_t after_w = std::string("cycles after").size();
-    for (const Row& r : rows) {
+    for (const ComparisonRow& r : result.rows) {
         name_w = std::max(name_w, r.name.size());
         before_w = std::max(before_w, std::to_string(r.cycles_before).size());
         after_w = std::max(after_w, std::to_string(r.cycles_after).size());
@@ -311,7 +417,7 @@ void print_comparison_table(std::string_view type, const std::string& only,
               << std::setw(static_cast<int>(before_w) + 1) << "cycles before"
               << std::setw(static_cast<int>(after_w) + 1) << "cycles after"
               << "speedup\n";
-    for (const Row& r : rows) {
+    for (const ComparisonRow& r : result.rows) {
         std::ostringstream speed;
         speed << std::fixed << std::setprecision(2) << r.speedup << "x";
         std::cout << "  " << std::left << std::setw(static_cast<int>(name_w) + 1) << r.name
@@ -319,6 +425,24 @@ void print_comparison_table(std::string_view type, const std::string& only,
                   << std::setw(static_cast<int>(after_w) + 1) << r.cycles_after << speed.str()
                   << '\n';
     }
+}
+
+// The comparison as a JSON object for the saved report.
+void write_comparison_json(std::ostream& out, const ComparisonResult& result,
+                           const RunContext& ctx) {
+    const uint64_t events = ctx.branch_stats == nullptr ? 0 : ctx.branch_stats->trace.size();
+    out << "{\"type\":\"" << json_escape(result.type) << "\",\"events\":" << events
+        << ",\"baseline\":\"" << json_escape(result.baseline) << "\",\"rows\":[";
+    for (std::size_t i = 0; i < result.rows.size(); ++i) {
+        const ComparisonRow& r = result.rows[i];
+        std::ostringstream speed;
+        speed << std::fixed << std::setprecision(2) << r.speedup;
+        out << "{\"name\":\"" << json_escape(r.name)
+            << "\",\"cycles_before\":" << r.cycles_before
+            << ",\"cycles_after\":" << r.cycles_after << ",\"speedup\":" << speed.str() << "}";
+        if (i + 1 < result.rows.size()) out << ",";
+    }
+    out << "]}";
 }
 
 } // namespace
@@ -332,8 +456,12 @@ int main(int argc, char** argv) {
     PipelineModel pipeline;
     bool comparison_mode = false;
     bool saw_predictor = false;
+    bool print_report = false;  // --print: show the human-readable report
+    bool verbose = false;       // --verbose: config echo and per-record tables
+    bool disasm = false;        // --disasm: static listing with block markers
     std::string comparison_type;
     std::string comparison_only;
+    std::string json_path;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -430,6 +558,18 @@ int main(int argc, char** argv) {
             o.name      = spec.substr(dot + 1, eq - dot - 1);
             o.value     = spec.substr(eq + 1);
             overrides.push_back(std::move(o));
+        } else if (arg == "--print") {
+            print_report = true;
+        } else if (arg == "--verbose") {
+            verbose = true;
+        } else if (arg == "--disasm") {
+            disasm = true;
+        } else if (arg == "--json") {
+            if (i + 1 >= argc) {
+                std::cerr << "RISC-E error: --json requires a report file path\n";
+                return 1;
+            }
+            json_path = argv[++i];
         } else if (arg == "--list") {
             std::string detail;
             if (i + 1 < argc && argv[i + 1][0] != '-') detail = argv[++i];
@@ -515,6 +655,11 @@ int main(int argc, char** argv) {
 
         LoadedElf elf = load_elf(load_path);
 
+        // --disasm lists the loaded image, so keep the segments the
+        // interpreter was built from before it takes ownership of the ELF.
+        std::vector<LoadedSegment> segments;
+        if (disasm) segments = elf.segments;
+
         Interpreter interpreter(std::move(elf), predictor);
         interpreter.set_branch_trace(true);
 
@@ -526,24 +671,107 @@ int main(int argc, char** argv) {
         ctx.pipeline = &pipeline;
         ctx.profile_stats = &interpreter.profile_stats();
         ctx.access_trace = &interpreter.access_trace();
+        ctx.verbose = verbose;
 
-        if (comparison_mode) {
-            print_comparison_table(comparison_type, comparison_only, ctx, overrides);
+        // The JSON report is the default artifact, saved to the project
+        // root's results/<program>.json (or the --json path); --print
+        // additionally shows the verbose human-readable report on the
+        // terminal.
+        const std::string report_path =
+            json_path.empty()
+                ? (std::filesystem::path(RISC_E_PROJECT_ROOT) / "results" /
+                   std::filesystem::path(elf_path).filename().replace_extension(".json"))
+                      .string()
+                : json_path;
+
+        const std::filesystem::path report_dir = std::filesystem::path(report_path).parent_path();
+        if (!report_dir.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(report_dir, ec);
+        }
+
+        // Show the report path relative to the current directory when it is
+        // inside it; fall back to the full path otherwise.
+        std::error_code rel_ec;
+        std::filesystem::path display_path =
+            std::filesystem::relative(report_path, std::filesystem::current_path(), rel_ec);
+        if (rel_ec || display_path.empty()) display_path = report_path;
+
+        // Build the JSON document compactly, then pretty-print it before
+        // writing, so the file is uniformly indented and always valid.
+        std::ostringstream doc;
+        doc << "{\"program\":\"" << json_escape(elf_path) << "\",\"exit_code\":";
+        if (exit_code.has_value()) {
+            doc << *exit_code;
         } else {
-            // The pipeline section doubles as the run summary and always
-            // leads; the components only report their own behaviour.
-            std::cout << pipeline.report_title() << '\n';
-            pipeline.report(std::cout, ctx);
-            std::cout << '\n';
-            std::cout << predictor->report_title() << '\n';
-            predictor->report(std::cout, ctx);
-            std::cout << '\n';
-            std::cout << icache->report_title() << '\n';
-            icache->report(std::cout, ctx);
-            std::cout << '\n';
-            std::cout << dcache->report_title() << '\n';
-            dcache->report(std::cout, ctx);
-            std::cout << '\n';
+            doc << "null";
+        }
+        doc << ",\"halt_reason\":\"" << json_escape(halt_reason_name(interpreter.halt_reason()))
+            << "\",\"program_output\":\"" << json_escape(interpreter.program_output()) << "\",";
+
+        ComparisonResult comparison;
+        if (comparison_mode) {
+            comparison = build_comparison_rows(comparison_type, comparison_only, ctx, overrides);
+            doc << "\"comparison\":";
+            write_comparison_json(doc, comparison, ctx);
+        } else {
+            doc << "\"stats\":{\"pipeline\":";
+            pipeline.write_json(doc, ctx);
+            doc << ",\"branch_prediction\":";
+            predictor->write_json(doc, ctx);
+            doc << ",\"icache\":";
+            icache->write_json(doc, ctx);
+            doc << ",\"cache\":";
+            dcache->write_json(doc, ctx);
+            doc << "}";
+        }
+        doc << "}";
+
+        const std::string report_doc = pretty_json(doc.str());
+
+        {
+            std::ofstream report(report_path);
+            if (!report) {
+                std::cerr << "RISC-E error: could not write report to \"" << report_path
+                          << "\"\n";
+                return 1;
+            }
+            report << report_doc << '\n';
+        }
+        std::cout << "report saved to " << display_path.string() << '\n';
+
+        if (print_report) {
+            // The program's own output (if any) is printed under an "output"
+            // separator; the tool's report follows under a "stats" separator.
+            if (!interpreter.program_output().empty()) {
+                print_section_header("output");
+                std::cout << interpreter.program_output();
+            }
+            print_section_header("stats");
+            if (comparison_mode) {
+                print_comparison_table(comparison, ctx);
+            } else {
+                // The pipeline section doubles as the run summary and always
+                // leads; the components only report their own behaviour.
+                std::cout << pipeline.report_title() << '\n';
+                pipeline.report(std::cout, ctx);
+                std::cout << '\n';
+                std::cout << predictor->report_title() << '\n';
+                predictor->report(std::cout, ctx);
+                std::cout << '\n';
+                std::cout << icache->report_title() << '\n';
+                icache->report(std::cout, ctx);
+                std::cout << '\n';
+                std::cout << dcache->report_title() << '\n';
+                dcache->report(std::cout, ctx);
+                std::cout << '\n';
+            }
+        }
+
+        if (disasm) {
+            print_section_header("disassembly");
+            print_disassembly(std::cout, segments, interpreter.memory(),
+                              &interpreter.profile_stats());
         }
 
         if (exit_code.has_value()) {

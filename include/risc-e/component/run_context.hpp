@@ -17,4 +17,10 @@ struct RunContext {
     const PipelineModel* pipeline = nullptr;     // active pipeline model
     const ICacheStats* profile_stats = nullptr; // dynamic execution profile
     const DCacheStats* access_trace = nullptr;   // load/store access stream
+
+    // --verbose gate for report detail. Components consult this in report()
+    // and write_json() to emit config echo and per-record tables (basic
+    // blocks, per-type branch counts) that the default report omits. This is
+    // the hook for adding verbose output: check the flag, then write.
+    bool verbose = false;
 };

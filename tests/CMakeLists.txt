@@ -24,6 +24,10 @@ add_executable(memory_cache_test memory_cache_test.cpp)
 target_link_libraries(memory_cache_test PRIVATE risc-e-core)
 add_test(NAME memory_cache_test COMMAND memory_cache_test)
 
+add_executable(disasm_test disasm_test.cpp)
+target_link_libraries(disasm_test PRIVATE risc-e-core)
+add_test(NAME disasm_test COMMAND disasm_test)
+
 # Integration tests: RISC-V test programs compiled with a cross-compiler.
 # When no RISC-V GCC is on PATH these tests are skipped.
 
@@ -77,23 +81,23 @@ if(RISCV_GCC)
     add_test(NAME branches COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branches PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 7")
 
-    add_test(NAME branch_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME branch_stats COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
-    add_test(NAME branch_stats_from_source COMMAND risc-e ${PROGRAM_ASM_DIR}/branches.S)
+    add_test(NAME branch_stats_from_source COMMAND risc-e --print ${PROGRAM_ASM_DIR}/branches.S)
     set_tests_properties(branch_stats_from_source
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME hello_c COMMAND risc-e ${PROGRAM_C_DIR}/hello.c)
     set_tests_properties(hello_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 42")
 
-    add_test(NAME hello_c_output COMMAND risc-e ${PROGRAM_C_DIR}/hello.c)
+    add_test(NAME hello_c_output COMMAND risc-e --print ${PROGRAM_C_DIR}/hello.c)
     set_tests_properties(hello_c_output PROPERTIES PASS_REGULAR_EXPRESSION "Hello from C")
 
     add_test(NAME branchy_c COMMAND risc-e --predictor gshare ${PROGRAM_C_DIR}/branchy.c)
     set_tests_properties(branchy_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 46")
 
-    add_test(NAME branchy_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branchy.c)
+    add_test(NAME branchy_c_stats COMMAND risc-e --print ${PROGRAM_C_DIR}/branchy.c)
     set_tests_properties(branchy_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
@@ -104,7 +108,7 @@ if(RISCV_GCC)
     add_test(NAME branch_data_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_data.c)
     set_tests_properties(branch_data_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 10")
 
-    add_test(NAME branch_data_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branch_data.c)
+    add_test(NAME branch_data_c_stats COMMAND risc-e --print ${PROGRAM_C_DIR}/branch_data.c)
     set_tests_properties(branch_data_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
@@ -117,7 +121,7 @@ if(RISCV_GCC)
     add_test(NAME branch_calls_c COMMAND risc-e ${PROGRAM_C_DIR}/branch_calls.c)
     set_tests_properties(branch_calls_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 55")
 
-    add_test(NAME branch_calls_c_stats COMMAND risc-e ${PROGRAM_C_DIR}/branch_calls.c)
+    add_test(NAME branch_calls_c_stats COMMAND risc-e --print ${PROGRAM_C_DIR}/branch_calls.c)
     set_tests_properties(branch_calls_c_stats
                          PROPERTIES PASS_REGULAR_EXPRESSION "branches: [0-9]+")
 
@@ -131,33 +135,72 @@ if(RISCV_GCC)
     add_test(NAME general_heap_c COMMAND risc-e ${PROGRAM_C_DIR}/general_heap.c)
     set_tests_properties(general_heap_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 224")
 
+    # Larger sample programs: text processing, matrix arithmetic, heap data
+    # structures, sorting, and a cellular automaton. Each prints its result
+    # and returns a checksum as the exit code.
+    add_test(NAME general_strings_c COMMAND risc-e ${PROGRAM_C_DIR}/general_strings.c)
+    set_tests_properties(general_strings_c
+                         PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 93")
+
+    add_test(NAME general_strings_output COMMAND risc-e --print ${PROGRAM_C_DIR}/general_strings.c)
+    set_tests_properties(general_strings_output
+                         PROPERTIES PASS_REGULAR_EXPRESSION "palindromes: 3")
+
+    add_test(NAME matrix_mul_c COMMAND risc-e ${PROGRAM_C_DIR}/matrix_mul.c)
+    set_tests_properties(matrix_mul_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 128")
+
+    add_test(NAME matrix_mul_output COMMAND risc-e --print ${PROGRAM_C_DIR}/matrix_mul.c)
+    set_tests_properties(matrix_mul_output
+                         PROPERTIES PASS_REGULAR_EXPRESSION "924")
+
+    add_test(NAME heap_structures_c COMMAND risc-e ${PROGRAM_C_DIR}/heap_structures.c)
+    set_tests_properties(heap_structures_c
+                         PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 120")
+
+    add_test(NAME sort_quicksort_c COMMAND risc-e ${PROGRAM_C_DIR}/sort_quicksort.c)
+    set_tests_properties(sort_quicksort_c
+                         PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 72")
+
+    add_test(NAME life_c COMMAND risc-e ${PROGRAM_C_DIR}/life.c)
+    set_tests_properties(life_c PROPERTIES PASS_REGULAR_EXPRESSION "exit code: 36")
+
+    add_test(NAME life_output COMMAND risc-e --print ${PROGRAM_C_DIR}/life.c)
+    set_tests_properties(life_output PROPERTIES PASS_REGULAR_EXPRESSION "live: 36")
+
+    # The branch-prediction section reports cycles saved vs no prediction.
+    add_test(NAME branch_stats_cycles_saved
+             COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(branch_stats_cycles_saved
+                         PROPERTIES PASS_REGULAR_EXPRESSION
+                                     "cycles saved: 8 \\(30.77%\\) vs no prediction")
+
     add_test(NAME branch_stats_gshare
-             COMMAND risc-e --predictor gshare ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --predictor gshare ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_gshare
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME branch_stats_tournament
-             COMMAND risc-e --predictor tournament ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --predictor tournament ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_tournament
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 6")
 
     add_test(NAME branch_stats_ras
-             COMMAND risc-e --predictor ras ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --predictor ras ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_ras
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 3")
 
     add_test(NAME branch_stats_always_not_taken
-             COMMAND risc-e --predictor always-not-taken ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --predictor always-not-taken ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_always_not_taken
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 2")
 
     add_test(NAME comparison_all_
-             COMMAND risc-e --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(comparison_all_
                          PROPERTIES PASS_REGULAR_EXPRESSION "two-bit")
 
     add_test(NAME comparison_cycles
-             COMMAND risc-e --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --comparison predictor ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(comparison_cycles
                          PROPERTIES PASS_REGULAR_EXPRESSION "two-bit.*1.44x")
 
@@ -166,50 +209,50 @@ if(RISCV_GCC)
     set_tests_properties(comparison_requires_name PROPERTIES WILL_FAIL TRUE)
 
     add_test(NAME comparison_single_predictor
-             COMMAND risc-e --comparison gshare ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --comparison gshare ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(comparison_single_predictor
                          PROPERTIES PASS_REGULAR_EXPRESSION "gshare"
                                     FAIL_REGULAR_EXPRESSION "two-bit")
 
     add_test(NAME branch_stats_params
-             COMMAND risc-e --predictor gshare --param gshare.history-bits=4
+             COMMAND risc-e --print --predictor gshare --param gshare.history-bits=4
                      --param gshare.ras-depth=0 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(branch_stats_params
                          PROPERTIES PASS_REGULAR_EXPRESSION "hits: 5")
 
-    add_test(NAME pipeline_stats COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME pipeline_stats COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_stats PROPERTIES PASS_REGULAR_EXPRESSION "pipeline")
 
-    add_test(NAME icache_report COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME icache_report COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_report
                          PROPERTIES PASS_REGULAR_EXPRESSION "basic blocks: 5")
 
-    add_test(NAME icache_report_numbers COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME icache_report_numbers COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_report_numbers
                          PROPERTIES PASS_REGULAR_EXPRESSION "instructions executed: 16")
 
-    add_test(NAME icache_comparison COMMAND risc-e --comparison icache
+    add_test(NAME icache_comparison COMMAND risc-e --print --comparison icache
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_comparison
                          PROPERTIES PASS_REGULAR_EXPRESSION
                                      "icache-fa.*3.59x|icache-plru.*3.59x")
 
-    add_test(NAME icache_cache COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+    add_test(NAME icache_cache COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_cache
                          PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 300 \\(72.12%\\)")
 
-    add_test(NAME icache_cache_param COMMAND risc-e --param icache-fa.miss-penalty=100
+    add_test(NAME icache_cache_param COMMAND risc-e --print --param icache-fa.miss-penalty=100
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_cache_param
                          PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 600")
 
     add_test(NAME icache_eviction
-             COMMAND risc-e --param icache-fa.ways=1
+             COMMAND risc-e --print --param icache-fa.ways=1
                      ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_eviction
                          PROPERTIES PASS_REGULAR_EXPRESSION "evictions: 1")
 
-    add_test(NAME icache_select COMMAND risc-e --icache icache-plru
+    add_test(NAME icache_select COMMAND risc-e --print --icache icache-plru
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(icache_select
                          PROPERTIES PASS_REGULAR_EXPRESSION "PLRU")
@@ -219,17 +262,17 @@ if(RISCV_GCC)
     set_tests_properties(icache_select_unknown PROPERTIES WILL_FAIL TRUE)
 
     add_test(NAME pipeline_penalty_5stage
-             COMMAND risc-e ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_5stage
                          PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 2")
 
     add_test(NAME pipeline_penalty_10stage
-             COMMAND risc-e --pipeline-stages 10 ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --pipeline-stages 10 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_10stage
                          PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
     add_test(NAME pipeline_penalty_override
-             COMMAND risc-e --stall-penalty 4 ${PROGRAM_ELF_DIR}/branches.elf)
+             COMMAND risc-e --print --stall-penalty 4 ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_penalty_override
                          PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 4")
 
@@ -249,7 +292,7 @@ if(RISCV_GCC)
     add_test(NAME list_components COMMAND risc-e --list)
     set_tests_properties(list_components PROPERTIES PASS_REGULAR_EXPRESSION "pipeline:")
 
-    add_test(NAME pipeline_param COMMAND risc-e --param pipeline.stages=10
+    add_test(NAME pipeline_param COMMAND risc-e --print --param pipeline.stages=10
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_param PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
@@ -258,11 +301,11 @@ if(RISCV_GCC)
                          PROPERTIES PASS_REGULAR_EXPRESSION "pattern-history")
 
     # Data caches (cache type: the L1+L2 hierarchy) and the backing store
-    add_test(NAME dcache_report COMMAND risc-e ${PROGRAM_C_DIR}/general_memory.c)
+    add_test(NAME dcache_report COMMAND risc-e --print ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_report
                          PROPERTIES PASS_REGULAR_EXPRESSION "cycles saved: 516")
 
-    add_test(NAME dcache_select COMMAND risc-e --dcache l1-l2
+    add_test(NAME dcache_select COMMAND risc-e --print --dcache l1-l2
              ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_select PROPERTIES PASS_REGULAR_EXPRESSION "write-back")
 
@@ -270,13 +313,24 @@ if(RISCV_GCC)
              ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_select_unknown PROPERTIES WILL_FAIL TRUE)
 
-    add_test(NAME dcache_param COMMAND risc-e --param l1-l2.l2-ways=2
+    add_test(NAME dcache_param COMMAND risc-e --print --param l1-l2.l2-ways=2
              ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_param
                          PROPERTIES PASS_REGULAR_EXPRESSION "L2 \\(32 sets x 2 ways")
 
-    add_test(NAME dcache_comparison COMMAND risc-e --comparison cache
+    add_test(NAME dcache_comparison COMMAND risc-e --print --comparison cache
              ${PROGRAM_C_DIR}/general_memory.c)
     set_tests_properties(dcache_comparison
                          PROPERTIES PASS_REGULAR_EXPRESSION "l1-l2.*[0-9].*x")
+
+    # Disassembly and the verbose report
+    add_test(NAME disasm_flag COMMAND risc-e --disasm ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(disasm_flag
+                         PROPERTIES PASS_REGULAR_EXPRESSION
+                                     "=> 0x[0-9a-f]+:  addi t0, zero, 5")
+
+    add_test(NAME verbose_report COMMAND risc-e --print --verbose ${PROGRAM_ELF_DIR}/branches.elf)
+    set_tests_properties(verbose_report
+                         PROPERTIES PASS_REGULAR_EXPRESSION
+                                     "config:|basic blocks:|by type:|control transfers:")
 endif()

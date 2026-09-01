@@ -10,14 +10,18 @@
 
 namespace {
 
-// Minimal _start for freestanding C programs: calls main() with argc/argv
-// cleared and exits with main's return value via the emulated exit(93)
-// syscall. sp is left as the interpreter initializes it (0x80000000), the
-// same convention the assembly test programs rely on.
+// Minimal _start for freestanding C programs: initializes the global pointer
+// (the linker relaxes static-data accesses to gp-relative when it fits), calls
+// main() with argc/argv cleared and exits with main's return value via the
+// emulated exit(93) syscall. sp is left as the interpreter initializes it
+// (0x80000000), the same convention the assembly test programs rely on.
 constexpr char kCrt0Source[] = R"asm(
     .section .text
     .globl _start
 _start:
+    .option norelax
+    la   gp, __global_pointer$
+    .option relax
     li   a0, 0          // argc
     li   a1, 0          // argv
     call main

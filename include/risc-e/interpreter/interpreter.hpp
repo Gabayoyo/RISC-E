@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 
 class Interpreter : public TrapSink {
 public:
@@ -46,6 +47,10 @@ public:
     const DCacheStats& access_trace() const { return access_trace_; }
     DCacheStats& access_trace() { return access_trace_; }
 
+    // Everything the program wrote to stdout/stderr via the write syscall,
+    // in order; empty when the program printed nothing.
+    const std::string& program_output() const { return program_output_; }
+
     void raise_trap(TrapCause cause, uint32_t value = 0) override;
 
     MemoryInterface& memory() { return mem_; }
@@ -60,6 +65,7 @@ private:
     BranchStats branch_stats_;
     ICacheStats profile_stats_;
     DCacheStats access_trace_;
+    std::string program_output_;
 
     // Basic-block identification state: whether the next instruction starts a
     // new block (set when the previous instruction was a control transfer),

@@ -241,6 +241,38 @@ std::optional<CycleCost> ICacheComponent::cycle_cost(const RunContext& ctx) {
     return CycleCost{t.total_cycles, t.baseline_cycles, "no instruction cache"};
 }
 
+void ICacheComponent::write_json(std::ostream& out, const RunContext& ctx) const {
+    if (ctx.profile_stats == nullptr) {
+        out << "{}";
+        return;
+    }
+    const ICacheResult t = simulate_icache(*ctx.profile_stats, config);
+    const double speedup =
+        t.baseline_cycles == 0
+            ? 0.0
+            : static_cast<double>(t.baseline_cycles) / static_cast<double>(t.total_cycles);
+
+    out << "{";
+    // Config is verbose detail: the default report keeps headline stats.
+    if (ctx.verbose) {
+        out << "\"config\":{\"miss_penalty\":" << config.miss_penalty
+            << ",\"line_size\":" << config.line_size << ",\"sets\":" << config.sets
+            << ",\"ways\":" << config.ways << ",\"policy\":\""
+            << (config.policy == Replacement::PLRU ? "PLRU" : "LRU") << "\",\"prefetch\":"
+            << (config.prefetch ? "true" : "false") << "},";
+    }
+    out << "\"hits\":" << t.hits << ",\"hit_rate\":" << fixed(t.hit_rate, 6)
+        << ",\"misses\":" << t.misses
+        << ",\"compulsory_misses\":" << t.compulsory_misses
+        << ",\"conflict_misses\":" << t.conflict_misses
+        << ",\"capacity_misses\":" << t.capacity_misses << ",\"evictions\":" << t.evictions;
+    if (config.prefetch) {
+        out << ",\"prefetches\":" << t.prefetches;
+    }
+    out << ",\"cycles_saved\":" << t.saved_cycles << ",\"saved_pct\":" << fixed(t.saved_pct, 6)
+        << ",\"speedup\":" << fixed(speedup, 6) << "}";
+}
+
 void ICacheComponent::report(std::ostream& out, const RunContext& ctx) const {
     if (ctx.profile_stats == nullptr) return;
     const ICacheStats& s = *ctx.profile_stats;

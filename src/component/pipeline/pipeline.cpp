@@ -3,6 +3,7 @@
 #include "risc-e/component/icache/icache_stats.hpp"
 #include "risc-e/component/predictor/branch_stats.hpp"
 #include "risc-e/component/run_context.hpp"
+#include "risc-e/disasm/disasm.hpp"
 
 #include <iomanip>
 #include <ostream>
@@ -109,15 +110,52 @@ void PipelineModel::report(std::ostream& out, const RunContext& ctx) const {
             << "  slowdown: " << fixed(ps.slowdown_pct, 2, true) << "% vs perfect\n";
     }
 
-    // How many cycles the run saves versus a worst-case pipeline that pays
-    // the penalty on every control transfer. Neutral baseline: no predictor
-    // or policy is named, so the number is a property of the run.
-    if (!s.trace.empty() && penalty > 0) {
-        const uint64_t events = s.trace.size();
-        const int64_t saved = static_cast<int64_t>(events - stall_events) * penalty;
-        out << "  cycles saved: " << saved << " vs worst-case (" << events
-            << " stall events)\n";
+    if (ctx.verbose) {
+        out << "  config:\n";
+        print_component_config(out, *this, ctx);
+        if (ctx.profile_stats != nullptr) {
+            out << "  basic blocks:\n";
+            print_block_table(out, build_block_table(*ctx.profile_stats), ctx.instruction_count);
+        }
     }
+}
+
+void PipelineModel::write_json(std::ostream& out, const RunContext& ctx) const {
+    const uint64_t stall_events = ctx.branch_stats == nullptr ? 0 : ctx.branch_stats->misses;
+    const PipelineStats ps = compute_pipeline_stats(ctx.instruction_count, stall_events, *this);
+
+    out << "{\"model\":\"" << json_escape(description()) << "\"";
+    // Config is verbose detail: the default report stays headline stats.
+    if (ctx.verbose) {
+        out << ",\"stages\":" << stages << ",\"stall_penalty\":" << penalty_cycles();
+    }
+    out << ",\"stall_events\":" << stall_events << ",\"instructions\":" << ps.instructions;
+    if (ctx.profile_stats != nullptr) {
+        out << ",\"distinct_instructions\":" << ctx.profile_stats->seen_pcs.size()
+            << ",\"basic_blocks\":" << ctx.profile_stats->blocks.size();
+    }
+    if (ctx.access_trace != nullptr) {
+        out << ",\"data_accesses\":" << ctx.access_trace->records.size()
+            << ",\"loads\":" << ctx.access_trace->loads
+            << ",\"stores\":" << ctx.access_trace->stores;
+    }
+    if (ctx.verbose && ctx.profile_stats != nullptr) {
+        const std::vector<BlockStat> blocks = build_block_table(*ctx.profile_stats);
+        out << ",\"blocks\":[";
+        for (std::size_t i = 0; i < blocks.size(); ++i) {
+            const BlockStat& b = blocks[i];
+            out << "{\"entry\":" << b.entry_pc << ",\"size\":" << b.static_size
+                << ",\"executions\":" << b.executions
+                << ",\"instructions\":" << b.dynamic_instructions << "}";
+            if (i + 1 < blocks.size()) out << ",";
+        }
+        out << "]";
+    }
+    out << ",\"ideal_cycles\":" << ps.ideal_cycles
+        << ",\"stall_cycles\":" << ps.penalty_cycles
+        << ",\"total_cycles\":" << ps.total_cycles
+        << ",\"cpi\":" << fixed(ps.cpi, 6)
+        << ",\"slowdown_pct\":" << fixed(ps.slowdown_pct, 6) << "}";
 }
 
 std::optional<CycleCost> PipelineModel::cycle_cost(const RunContext& ctx) {

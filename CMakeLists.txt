@@ -17,6 +17,9 @@ target_include_directories(risc-e-core PUBLIC include)
 
 add_executable(risc-e src/main.cpp)
 target_link_libraries(risc-e PRIVATE risc-e-core)
+# The CLI's default JSON-report directory lives at the project root, so it
+# works no matter where the binary is invoked from.
+target_compile_definitions(risc-e PRIVATE RISC_E_PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
 include(CTest)
 enable_testing()

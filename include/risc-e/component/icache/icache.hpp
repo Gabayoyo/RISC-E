@@ -67,6 +67,7 @@ public:
     std::string_view report_title() const override { return "icache"; }
 
     void report(std::ostream& out, const RunContext& ctx) const override;
+    void write_json(std::ostream& out, const RunContext& ctx) const override;
     std::optional<CycleCost> cycle_cost(const RunContext& ctx) override;
 
 protected:

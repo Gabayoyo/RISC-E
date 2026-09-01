@@ -29,6 +29,10 @@ struct ParamOverride {
 // `error` when the value is not a non-negative integer.
 std::optional<long> parse_parameter_value(std::string_view value, std::string& error);
 
+// Escapes a string for embedding in a JSON document (quotes, backslashes and
+// control characters). Used by the component write_json hooks.
+std::string json_escape(std::string_view value);
+
 // One component's cost answer over the recorded run, in cycles. total_cycles
 // is the run's cost under this component; baseline_cycles is the cost of a
 // reference design named by baseline_name ("no prediction", "no instruction
@@ -78,6 +82,14 @@ public:
         (void)ctx;
     }
 
+    // JSON hook: the component's section of the saved report, as a bare JSON
+    // object (no key). Mirrors report(); skipped by the JSON writer when the
+    // component does not model the run.
+    virtual void write_json(std::ostream& out, const RunContext& ctx) const {
+        (void)out;
+        (void)ctx;
+    }
+
     // Comparison hook, non-const: trace-replay components recompute their
     // state here; the driver resets first. The canonical cost answer for the
     // cycles-before / cycles-after / speedup columns. Components that do not
@@ -86,3 +98,8 @@ public:
     // comparable within a type but never across types.
     virtual std::optional<CycleCost> cycle_cost(const RunContext&) { return std::nullopt; }
 };
+
+// Verbose config echo: prints one "name = value" line per tunable from
+// parameters(). No-op unless the run is verbose, so a component can call it
+// from report() without checking the flag itself.
+void print_component_config(std::ostream& out, const Component& comp, const RunContext& ctx);

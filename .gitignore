@@ -72,4 +72,5 @@ Testing/
 .DS_Store
 *.elf
 out/
+results/
 .vscode
