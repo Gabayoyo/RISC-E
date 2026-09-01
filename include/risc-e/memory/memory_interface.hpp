@@ -6,10 +6,10 @@
 
 class MemoryInterface {
 protected:
-    TrapSink* trapSink_ = nullptr;
+    TrapSink* trap_sink_ = nullptr;
 
 public:
-    void setTrapSink(TrapSink* sink) { trapSink_ = sink; }
+    void set_trap_sink(TrapSink* sink) { trap_sink_ = sink; }
 
     virtual uint32_t load32(uint32_t addr) = 0;
     virtual void    store32(uint32_t addr, uint32_t value) = 0;

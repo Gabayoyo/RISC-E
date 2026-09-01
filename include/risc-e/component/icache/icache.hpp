@@ -75,5 +75,15 @@ protected:
     // Applies a shared tunable; false when the name is not a shared one.
     bool set_shared_parameter(std::string_view name, long value, std::string& error);
 
+    // Sets/ways geometry tunables used by the set-associative designs
+    // (`ways_help` is the --list description for the ways tunable).
+    void append_geometry_parameters(std::vector<ParamSpec>& out,
+                                    std::string_view ways_help) const;
+    // Applies a sets/ways override; false when the name is not a geometry
+    // tunable. PLRU designs pass `power_of_two_ways` to require ways be a
+    // power of two.
+    bool set_geometry_parameter(std::string_view name, long value, std::string& error,
+                                bool power_of_two_ways = false);
+
     ICacheConfig config;
 };

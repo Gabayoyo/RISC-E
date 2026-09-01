@@ -297,9 +297,7 @@ void print_comparison_table(std::string_view type, const std::string& only,
               << (ctx.pipeline == nullptr ? "" : ", " + ctx.pipeline->description());
     if (!speedup_baseline.empty()) std::cout << "; speedup vs " << speedup_baseline;
 
-    // Columns size themselves to the widest cell (name or digit count), so a
-    // long component name never spills into the next column. The +1 keeps a
-    // visible gap between columns even when a cell exactly fills its width.
+    // Columns size to the widest cell; the +1 keeps a visible gap.
     std::size_t name_w = std::string("component").size();
     std::size_t before_w = std::string("cycles before").size();
     std::size_t after_w = std::string("cycles after").size();
@@ -413,9 +411,7 @@ int main(int argc, char** argv) {
             }
             pipeline.stall_penalty = static_cast<int>(*penalty);
         } else if (arg == "--param") {
-            // arch: --param is component-namespaced ("<component>.<tunable>=<value>").
-            //  and the pipeline register today; memory and other
-            // component types reuse the same syntax and ParamSpec machinery.
+            // Format: "<component>.<parameter>=<value>", namespaced by component.
             if (i + 1 >= argc) {
                 std::cerr << "RISC-E error: --param requires <component>.<parameter>=<value>, "
                              "e.g. gshare.history-bits=14\n";
@@ -434,7 +430,7 @@ int main(int argc, char** argv) {
             o.name      = spec.substr(dot + 1, eq - dot - 1);
             o.value     = spec.substr(eq + 1);
             overrides.push_back(std::move(o));
-        } else if (arg == "--list" || arg == "--list-") {
+        } else if (arg == "--list") {
             std::string detail;
             if (i + 1 < argc && argv[i + 1][0] != '-') detail = argv[++i];
             return print_component_list(detail) ? 0 : 1;

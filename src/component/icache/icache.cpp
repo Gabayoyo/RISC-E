@@ -188,6 +188,35 @@ void ICacheComponent::append_shared_parameters(std::vector<ParamSpec>& out) cons
                    std::to_string(config.line_size)});
 }
 
+void ICacheComponent::append_geometry_parameters(std::vector<ParamSpec>& out,
+                                                 std::string_view ways_help) const {
+    out.push_back({"sets", "number of sets", 1, 0, std::to_string(config.sets)});
+    out.push_back({"ways", std::string(ways_help), 1, 0, std::to_string(config.ways)});
+}
+
+bool ICacheComponent::set_geometry_parameter(std::string_view name, long value,
+                                             std::string& error, bool power_of_two_ways) {
+    if (name == "sets") {
+        if (value < 1) {
+            error = "sets must be >= 1";
+            return false;
+        }
+        config.sets = value;
+        return true;
+    }
+    if (name == "ways") {
+        if (value < 1 || (power_of_two_ways && (value & (value - 1)) != 0)) {
+            error = power_of_two_ways ? "ways must be a power of two for PLRU"
+                                      : "ways must be >= 1";
+            return false;
+        }
+        config.ways = value;
+        return true;
+    }
+    (void)error;
+    return false;
+}
+
 bool ICacheComponent::set_shared_parameter(std::string_view name, long value,
                                            std::string& error) {
     if (name == "miss-penalty") {

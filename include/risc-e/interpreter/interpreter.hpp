@@ -46,7 +46,7 @@ public:
     const DCacheStats& access_trace() const { return access_trace_; }
     DCacheStats& access_trace() { return access_trace_; }
 
-    void raiseTrap(TrapCause cause, uint32_t value = 0) override;
+    void raise_trap(TrapCause cause, uint32_t value = 0) override;
 
     MemoryInterface& memory() { return mem_; }
     const MemoryInterface& memory() const { return mem_; }
@@ -67,7 +67,7 @@ private:
     bool block_entering_ = true;
     uint32_t current_block_id_ = ICacheStats::kNoBlock;
 
-    CPUstate state_;
+    CPUState state_;
     PhysicalMemory mem_;
 
     void execute(const DecodedInstruction& d);

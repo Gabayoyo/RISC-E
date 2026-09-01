@@ -125,7 +125,7 @@ void test_ras() {
     expect(stats.indirect_hits == 1 && stats.indirect_misses == 0, "ras JALR: return hit");
 }
 
-void test_parameterized_() {
+void test_parameterized() {
     // Without a RAS the indirect return misses again.
     GsharePredictor gshare(4, 0);
     const auto [gs, gs_code] = run_with(gshare);
@@ -174,7 +174,7 @@ void test_factory() {
     expect(make_component("bogus") == nullptr, "unknown predictor names are rejected");
 
     const std::vector<std::string_view> names = component_names("predictor");
-    expect(names.size() == 5, "five  registered");
+    expect(names.size() == 5, "five predictors registered");
     for (std::string_view name : names) {
         expect(make_component(name) != nullptr, "every registered name constructs a predictor");
     }
@@ -244,7 +244,7 @@ int main() {
     test_gshare();
     test_tournament();
     test_ras();
-    test_parameterized_();
+    test_parameterized();
     test_return_address_stack();
     test_factory();
     test_parameters();

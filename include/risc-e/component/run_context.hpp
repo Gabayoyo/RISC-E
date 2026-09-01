@@ -10,7 +10,7 @@ struct ICacheStats;
 
 // Everything a component may need from a run to render its report or compute
 // its comparison metrics. Fields grow as new component types record their own
-// traces (a memory-access trace for the data-cache models).
+// traces.
 struct RunContext {
     uint64_t instruction_count = 0;
     const BranchStats* branch_stats = nullptr;   // live-run stats (incl. trace)

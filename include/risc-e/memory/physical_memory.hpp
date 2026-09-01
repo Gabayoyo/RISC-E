@@ -14,15 +14,15 @@ class PhysicalMemory : public MemoryInterface {
 
     std::vector<std::unique_ptr<uint8_t[]>> pages;  // size = NUM_PAGES, initially all nullptr
 
-    uint8_t* getPagePtr(uint32_t addr);
-    const uint8_t* getPagePtr(uint32_t addr) const;
+    uint8_t* get_page_ptr(uint32_t addr);
+    const uint8_t* get_page_ptr(uint32_t addr) const;
 
-    bool checkAlignment(uint32_t addr, uint32_t size, TrapCause cause);
-    bool checkRange(uint32_t addr, uint32_t size, TrapCause cause);
-    bool checkMapped(uint32_t addr, uint32_t size, TrapCause cause);
-    void raiseFault(TrapCause cause, uint32_t addr);
-    bool readByte(uint32_t addr, uint8_t& value);
-    bool writeByte(uint32_t addr, uint8_t value);
+    bool check_alignment(uint32_t addr, uint32_t size, TrapCause cause);
+    bool check_range(uint32_t addr, uint32_t size, TrapCause cause);
+    bool check_mapped(uint32_t addr, uint32_t size, TrapCause cause);
+    void raise_fault(TrapCause cause, uint32_t addr);
+    bool read_byte(uint32_t addr, uint8_t& value);
+    bool write_byte(uint32_t addr, uint8_t value);
 
 public:
     PhysicalMemory();

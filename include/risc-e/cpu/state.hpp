@@ -11,7 +11,7 @@ enum class HaltReason : uint8_t {
     TRAP,   // halted due to an unhandled trap
 };
 
-struct CPUstate {
+struct CPUState {
     // General-purpose registers x0-x31. x0 is hardwired to 0.
     uint32_t x[32] = {};
 

@@ -51,18 +51,6 @@ double BranchStats::hit_rate() const {
     return 100.0 * static_cast<double>(hits) / static_cast<double>(predicted);
 }
 
-double BranchStats::conditional_hit_rate() const {
-    const uint64_t predicted = cond_hits + cond_misses;
-    if (predicted == 0) return 0.0;
-    return 100.0 * static_cast<double>(cond_hits) / static_cast<double>(predicted);
-}
-
-double BranchStats::indirect_hit_rate() const {
-    const uint64_t predicted = indirect_hits + indirect_misses;
-    if (predicted == 0) return 0.0;
-    return 100.0 * static_cast<double>(indirect_hits) / static_cast<double>(predicted);
-}
-
 BranchStats replay_trace(const std::vector<BranchRecord>& trace, BranchPredictor& predictor) {
     BranchStats stats;
     for (const BranchRecord& rec : trace) {

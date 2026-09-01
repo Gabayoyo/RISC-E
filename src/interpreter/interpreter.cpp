@@ -57,7 +57,7 @@ constexpr uint8_t F3_SW = 0b010;
 constexpr uint32_t kInitialStackPointer = 0x80000000;
 constexpr uint32_t kStackSize           = 8u * 1024u * 1024u;  // 8 MiB
 
-void write_register(CPUstate& state, uint8_t reg, uint32_t value) {
+void write_register(CPUState& state, uint8_t reg, uint32_t value) {
     if (reg != 0) state.x[reg] = value;
 }
 
@@ -87,14 +87,14 @@ bool is_valid_shift(uint8_t funct7, uint8_t funct3) {
     switch (funct3) {
         case F3_SLLI:
             return funct7 == F7_SLLI;
-        case F3_SRLI:  // SRAI shares funct3 with SRLI
+        case F3_SRLI:
             return funct7 == 0x00 || funct7 == F7_SRAI;
         default:
             return false;
     }
 }
 
-void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+void execute_branch(CPUState& state, TrapSink& sink, const DecodedInstruction& d,
                     BranchPredictor* predictor, BranchStats& stats, uint64_t inst_count) {
     const uint32_t rs1 = state.x[d.rs1];
     const uint32_t rs2 = state.x[d.rs2];
@@ -108,7 +108,7 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
         case F3_BLTU: taken = rs1 < rs2; break;
         case F3_BGEU: taken = rs1 >= rs2; break;
         default:
-            sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             return;
     }
 
@@ -129,7 +129,7 @@ void execute_branch(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
     state.pc = target;
 }
 
-void execute_op_imm(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_op_imm(CPUState& state, TrapSink& sink, const DecodedInstruction& d) {
     const uint32_t rs1 = state.x[d.rs1];
     const uint32_t imm = static_cast<uint32_t>(d.imm);
     uint32_t result = 0;
@@ -154,9 +154,9 @@ void execute_op_imm(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
             result = rs1 & imm;
             break;
         case F3_SLLI:
-        case F3_SRLI:  // SRAI shares funct3 with SRLI
+        case F3_SRLI:
             if (!is_valid_shift(d.funct7, d.funct3)) {
-                sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+                sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
                 return;
             }
             {
@@ -171,7 +171,7 @@ void execute_op_imm(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
             }
             break;
         default:
-            sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             return;
     }
 
@@ -179,9 +179,9 @@ void execute_op_imm(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
     state.pc += 4;
 }
 
-void execute_op(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_op(CPUState& state, TrapSink& sink, const DecodedInstruction& d) {
     if (!is_valid_funct7(d.funct7, d.funct3)) {
-        sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+        sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
         return;
     }
 
@@ -217,7 +217,7 @@ void execute_op(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
             result = rs1 & rs2;
             break;
         default:
-            sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             return;
     }
 
@@ -225,7 +225,7 @@ void execute_op(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
     state.pc += 4;
 }
 
-void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+void execute_load(CPUState& state, TrapSink& sink, const DecodedInstruction& d,
                   DCacheStats& trace) {
     const uint32_t address = state.x[d.rs1] + static_cast<uint32_t>(d.imm);
     uint32_t result = 0;
@@ -244,22 +244,18 @@ void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
             break;
         }
         case F3_LW:
-
             result = state.mem->load32(address);
             break;
         case F3_LBU:
-
             result = state.mem->load8(address);
             break;
         case F3_LHU:
-
             result = state.mem->load16(address);
             break;
         default:
-            sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             return;
     }
-
 
     if (!state.running) return;  // a memory fault halted execution; rd must not be written
     const uint8_t size = (d.funct3 == F3_LB || d.funct3 == F3_LBU) ? 1
@@ -270,7 +266,7 @@ void execute_load(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
     state.pc += 4;
 }
 
-void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
+void execute_store(CPUState& state, TrapSink& sink, const DecodedInstruction& d,
                    DCacheStats& trace) {
     const uint32_t address = state.x[d.rs1] + static_cast<uint32_t>(d.imm);
 
@@ -285,7 +281,7 @@ void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
             state.mem->store32(address, state.x[d.rs2]);
             break;
         default:
-            sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
     }
 
     if (!state.running) return;  // a memory fault halted execution
@@ -294,13 +290,13 @@ void execute_store(CPUstate& state, TrapSink& sink, const DecodedInstruction& d,
     state.pc += 4;
 }
 
-void execute_system(CPUstate& state, TrapSink& sink, const DecodedInstruction& d) {
+void execute_system(CPUState& state, TrapSink& sink, const DecodedInstruction& d) {
     // ECALL/EBREAK require funct3 == 0, rd == 0 and rs1 == 0.
     const bool valid_env = d.funct3 == 0 && d.rd == 0 && d.rs1 == 0;
 
     if (d.imm == 0 && valid_env) {
         // ECALL: trap now; handle_trap advances PC past the instruction
-        sink.raiseTrap(TrapCause::ENVIRONMENT_CALL_FROM_MMODE, 0);
+        sink.raise_trap(TrapCause::ENVIRONMENT_CALL_FROM_MMODE, 0);
         return;
     }
 
@@ -308,7 +304,7 @@ void execute_system(CPUstate& state, TrapSink& sink, const DecodedInstruction& d
         state.halt_reason = HaltReason::EBREAK;
         state.running     = false;
     } else {
-        sink.raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+        sink.raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
         return;
     }
 
@@ -333,7 +329,7 @@ Interpreter::Interpreter(LoadedElf elf, BranchPredictor* predictor)
       heap_break_(align_up(static_cast<uint32_t>(elf.end_vaddr), 16u)),
       predictor_(predictor)
 {
-    mem_.setTrapSink(this);
+    mem_.set_trap_sink(this);
     state_.mem = &mem_;
 
     mem_.map_region(kInitialStackPointer - kStackSize, kStackSize);
@@ -356,7 +352,7 @@ Interpreter::Interpreter(Interpreter&& other) noexcept
       mem_(std::move(other.mem_))
 {
     state_.mem = &mem_;
-    mem_.setTrapSink(this);
+    mem_.set_trap_sink(this);
 }
 
 void Interpreter::reset() {
@@ -391,14 +387,9 @@ void Interpreter::step() {
 
     const DecodedInstruction d = decode_raw_inst(inst, state_.pc);
 
-    // Profile the instruction. A basic block starts wherever control lands:
-    // the program entry, a branch/jump target, or the fall-through of a
-    // not-taken branch. Block boundaries are therefore detected by "the
-    // previous instruction was a control transfer"; the first instruction of
-    // the run always starts a block. (Dynamic identification: a block that is
-    // first reached by fall-through and later becomes a jump target is split
-    // on its first back-edge, so that first trip counts toward the
-    // predecessor block.)
+    // Profile the instruction. A new basic block starts wherever control
+    // lands: the program entry, a branch/jump target, or the fall-through of
+    // a not-taken branch; the first instruction of the run always starts one.
     profile_stats_.record_instruction(state_.pc);
     if (block_entering_) {
         current_block_id_ = profile_stats_.record_block_entry(state_.pc);
@@ -440,7 +431,7 @@ void Interpreter::execute(const DecodedInstruction& d) {
 
         case opc::kJalr: {
             if (d.funct3 != 0) {
-                raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+                raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
                 break;
             }
             const uint32_t target = (state_.x[d.rs1] + static_cast<uint32_t>(d.imm)) & ~1u;
@@ -477,19 +468,19 @@ void Interpreter::execute(const DecodedInstruction& d) {
 
         case opc::kMiscMem:  // FENCE (funct3=0) / FENCE.I (funct3=1)
             if (d.funct3 > 1) {
-                raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+                raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
                 break;
             }
             state_.pc += 4;
             break;
 
         default:
-            raiseTrap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
+            raise_trap(TrapCause::ILLEGAL_INSTRUCTION, d.raw);
             break;
     }
 }
 
-void Interpreter::raiseTrap(TrapCause cause, uint32_t value) {
+void Interpreter::raise_trap(TrapCause cause, uint32_t value) {
     state_.mepc   = state_.pc;
     state_.mcause = static_cast<uint32_t>(cause);
     state_.mtval  = value;

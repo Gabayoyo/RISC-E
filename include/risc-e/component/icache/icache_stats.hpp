@@ -7,8 +7,7 @@
 
 // One identified basic block: a maximal run of straight-line code starting at
 // a control-transfer target (or the program entry). Blocks are interned at
-// first sight: the entry PC maps to a sequential id that later consumers (IR,
-// layout) can key on without carrying addresses around. The execution and
+// first sight: the entry PC maps to a sequential id. The execution and
 // instruction counts feed the simulated instruction-cache models.
 struct BlockInfo {
     uint32_t entry_pc = 0;

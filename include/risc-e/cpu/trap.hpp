@@ -15,6 +15,6 @@ enum class TrapCause : uint32_t {
 
 class TrapSink {
 public:
-    virtual void raiseTrap(TrapCause cause, uint32_t value = 0) = 0;
+    virtual void raise_trap(TrapCause cause, uint32_t value = 0) = 0;
     virtual ~TrapSink() = default;
 };

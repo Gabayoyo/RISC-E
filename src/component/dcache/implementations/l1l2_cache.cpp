@@ -86,6 +86,31 @@ void print_level(std::ostream& out, const std::string& label, const DCacheConfig
         << "    writebacks: " << r.writebacks << '\n';
 }
 
+// Simulates the L1->L2 chain (L1's refills and dirty evictions are forwarded
+// to L2, so L1 only pays its hits) and the L1-only baseline, where every L1
+// miss and writeback pays DRAM directly.
+struct HierarchyResult {
+    DCacheResult l1;
+    DCacheResult l2;
+    uint64_t total_cycles = 0;
+    uint64_t baseline_cycles = 0;
+};
+
+HierarchyResult simulate_hierarchy(const DCacheConfig& l1, const DCacheConfig& l2,
+                                   const DCacheStats& trace) {
+    DCacheConfig l1_chain = l1;
+    l1_chain.miss_penalty = 0;
+    DCacheStats miss_stream;
+    const DCacheResult r1 = simulate_dcache(trace, l1_chain, &miss_stream);
+    const DCacheResult r2 = simulate_dcache(miss_stream, l2);
+
+    DCacheConfig l1_only = l1;
+    l1_only.miss_penalty = l2.miss_penalty;
+    const DCacheResult baseline_r = simulate_dcache(trace, l1_only);
+
+    return {r1, r2, r1.total_cycles + r2.total_cycles, baseline_r.total_cycles};
+}
+
 } // namespace
 
 L1L2Cache::L1L2Cache() {
@@ -130,49 +155,28 @@ bool L1L2Cache::set_parameter(std::string_view name, std::string_view value,
 
 std::optional<CycleCost> L1L2Cache::cycle_cost(const RunContext& ctx) {
     if (ctx.access_trace == nullptr) return std::nullopt;
-    const DCacheStats& tr = *ctx.access_trace;
-
-    // L1 with its miss cost deferred to L2: refills and dirty evictions are
-    // forwarded on the miss stream, so L1 only pays its hits.
-    DCacheConfig l1_chain = l1;
-    l1_chain.miss_penalty = 0;
-    DCacheStats miss_stream;
-    const DCacheResult r1 = simulate_dcache(tr, l1_chain, &miss_stream);
-    const DCacheResult r2 = simulate_dcache(miss_stream, l2);
-    const uint64_t total = r1.total_cycles + r2.total_cycles;
-
-    // L1-only baseline: every L1 miss and writeback pays DRAM directly.
-    DCacheConfig l1_only = l1;
-    l1_only.miss_penalty = l2.miss_penalty;
-    const uint64_t baseline = simulate_dcache(tr, l1_only).total_cycles;
-
-    return CycleCost{total, baseline, "L1 only"};
+    const HierarchyResult h = simulate_hierarchy(l1, l2, *ctx.access_trace);
+    return CycleCost{h.total_cycles, h.baseline_cycles, "L1 only"};
 }
 
 void L1L2Cache::report(std::ostream& out, const RunContext& ctx) const {
     if (ctx.access_trace == nullptr) return;
     const DCacheStats& tr = *ctx.access_trace;
-
-    DCacheConfig l1_chain = l1;
-    l1_chain.miss_penalty = 0;
-    DCacheStats miss_stream;
-    const DCacheResult r1 = simulate_dcache(tr, l1_chain, &miss_stream);
-    const DCacheResult r2 = simulate_dcache(miss_stream, l2);
-    const uint64_t total = r1.total_cycles + r2.total_cycles;
-
-    DCacheConfig l1_only = l1;
-    l1_only.miss_penalty = l2.miss_penalty;
-    const DCacheResult baseline_r = simulate_dcache(tr, l1_only);
-    const uint64_t baseline = baseline_r.total_cycles;
+    const HierarchyResult h = simulate_hierarchy(l1, l2, tr);
 
     const double speedup =
-        baseline == 0 ? 0.0 : static_cast<double>(baseline) / static_cast<double>(total);
-    const int64_t saved = static_cast<int64_t>(baseline) - static_cast<int64_t>(total);
-    const double saved_pct =
-        baseline == 0 ? 0.0 : 100.0 * static_cast<double>(saved) / static_cast<double>(baseline);
+        h.baseline_cycles == 0 ? 0.0
+                               : static_cast<double>(h.baseline_cycles) /
+                                     static_cast<double>(h.total_cycles);
+    const int64_t saved =
+        static_cast<int64_t>(h.baseline_cycles) - static_cast<int64_t>(h.total_cycles);
+    const double saved_pct = h.baseline_cycles == 0
+                                 ? 0.0
+                                 : 100.0 * static_cast<double>(saved) /
+                                       static_cast<double>(h.baseline_cycles);
 
-    print_level(out, "L1", l1, r1, static_cast<uint64_t>(l1.hit_latency));
-    print_level(out, "L2", l2, r2, static_cast<uint64_t>(l2.hit_latency));
+    print_level(out, "L1", l1, h.l1, static_cast<uint64_t>(l1.hit_latency));
+    print_level(out, "L2", l2, h.l2, static_cast<uint64_t>(l2.hit_latency));
     out << "  cycles saved: " << saved << " (" << fixed(saved_pct, 2) << "%) vs L1 only \u2014 "
         << fixed(speedup, 2) << "x\n";
     if (tr.records.size() == DCacheStats::kMaxRecords) {

@@ -41,18 +41,16 @@ struct BranchStats {
     uint64_t misses = 0;
 
     // Breakdown of the predictor comparison.
-    uint64_t cond_hits      = 0;
-    uint64_t cond_misses    = 0;
-    uint64_t indirect_hits  = 0;  // JALR
-    uint64_t indirect_misses = 0; // JALR
+    uint64_t cond_hits       = 0;
+    uint64_t cond_misses     = 0;
+    uint64_t indirect_hits   = 0;  // JALR
+    uint64_t indirect_misses = 0;
 
     bool trace_enabled = false;
     std::vector<BranchRecord> trace;
 
     void reset();
     double hit_rate() const;
-    double conditional_hit_rate() const;
-    double indirect_hit_rate() const;
 };
 
 // Applies one control transfer to the predictor and the cumulative stats.

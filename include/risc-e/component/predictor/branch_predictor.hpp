@@ -1,5 +1,6 @@
 #pragma once
 
+#include "risc-e/component/predictor/return_address_stack.hpp"
 #include "risc-e/decoder/decoded_instruction.hpp"
 #include "risc-e/decoder/opcodes.hpp"
 #include "risc-e/component/component.hpp"
@@ -105,4 +106,47 @@ inline bool counter_is_taken(std::uint8_t c) { return c >= 2; }
 inline Prediction predict_taken_or_fallthrough(const BranchContext& ctx, bool taken) {
     if (taken) return Prediction{ctx.direct_target()};
     return Prediction{ctx.fallthrough_pc()};
+}
+
+// Predicts the non-direct control transfers (callers handle JAL and
+// conditional branches first): a return predicts the top of the return-address
+// stack, and everything else falls through — no target source without a BTB.
+inline Prediction predict_call_return(const BranchContext& ctx, const ReturnAddressStack& ras) {
+    if (ctx.is_return()) {
+        if (const auto target = ras.peek()) return Prediction{*target};
+    }
+    return {ctx.fallthrough_pc()};
+}
+
+// Learns from a resolved call or return: a call pushes its return address; a
+// return pops the predicted target and re-pushes the actual target when the
+// prediction missed, so the stack stays aligned.
+inline void resolve_call_return(const BranchContext& ctx, const Resolution& res,
+                                ReturnAddressStack& ras) {
+    if (ctx.is_call()) {
+        ras.push(ctx.pc + 4);
+    } else if (ctx.is_return()) {
+        const auto predicted = ras.pop();
+        if (predicted && *predicted != res.next_pc) ras.push(res.next_pc);
+    }
+}
+
+// Shared "ras-depth" tunable (0 disables the stack), for the parameter list.
+inline ParamSpec ras_depth_parameter(const ReturnAddressStack& ras) {
+    return {"ras-depth", "return-address stack depth (0 disables)", 0,
+            static_cast<long>(ReturnAddressStack::kMaxDepth), std::to_string(ras.depth())};
+}
+
+// Applies a "ras-depth" override (0 disables the stack). False with `error`
+// set when the value is out of range.
+inline bool set_ras_depth_parameter(std::string_view value, ReturnAddressStack& ras,
+                                    std::string& error) {
+    const auto parsed = parse_parameter_value(value, error);
+    if (!parsed) return false;
+    if (*parsed > static_cast<long>(ReturnAddressStack::kMaxDepth)) {
+        error = "ras-depth must be in [0, " + std::to_string(ReturnAddressStack::kMaxDepth) + "]";
+        return false;
+    }
+    ras.resize(static_cast<std::size_t>(*parsed));
+    return true;
 }

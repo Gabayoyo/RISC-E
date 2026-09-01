@@ -86,9 +86,8 @@ void PipelineModel::report(std::ostream& out, const RunContext& ctx) const {
     const PipelineStats ps = compute_pipeline_stats(ctx.instruction_count, stall_events, *this);
     const int penalty = penalty_cycles();
 
-    // This section doubles as the run summary: the run-level stats every
-    // component would otherwise repeat live here, and the components only
-    // report their own behaviour.
+    // This section doubles as the run summary: the run-level stats live here,
+    // and the components only report their own behaviour.
     out << "  model: " << description() << '\n'
         << "  instructions executed: " << ps.instructions << '\n';
     if (ctx.profile_stats != nullptr) {

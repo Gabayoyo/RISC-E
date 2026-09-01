@@ -243,8 +243,8 @@ if(RISCV_GCC)
                      ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(unknown_param_rejected PROPERTIES WILL_FAIL TRUE)
 
-    add_test(NAME list_ COMMAND risc-e --list-)
-    set_tests_properties(list_ PROPERTIES PASS_REGULAR_EXPRESSION "history-bits=12")
+    add_test(NAME list_all COMMAND risc-e --list)
+    set_tests_properties(list_all PROPERTIES PASS_REGULAR_EXPRESSION "history-bits=12")
 
     add_test(NAME list_components COMMAND risc-e --list)
     set_tests_properties(list_components PROPERTIES PASS_REGULAR_EXPRESSION "pipeline:")
@@ -253,7 +253,7 @@ if(RISCV_GCC)
              ${PROGRAM_ELF_DIR}/branches.elf)
     set_tests_properties(pipeline_param PROPERTIES PASS_REGULAR_EXPRESSION "stall cycles: 7")
 
-    add_test(NAME list_predictor_detail COMMAND risc-e --list- gshare)
+    add_test(NAME list_predictor_detail COMMAND risc-e --list gshare)
     set_tests_properties(list_predictor_detail
                          PROPERTIES PASS_REGULAR_EXPRESSION "pattern-history")
 

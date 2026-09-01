@@ -13,7 +13,7 @@ public:
     uint32_t last_value = 0;
     bool fired = false;
 
-    void raiseTrap(TrapCause cause, uint32_t value = 0) override {
+    void raise_trap(TrapCause cause, uint32_t value = 0) override {
         fired = true;
         last_cause = cause;
         last_value = value;
@@ -30,7 +30,7 @@ void expect(bool condition, const char* message) {
 void test_physical_memory_faults() {
     FakeTrapSink sink;
     PhysicalMemory mem;
-    mem.setTrapSink(&sink);
+    mem.set_trap_sink(&sink);
 
     // Unmapped read faults (returns 0, raises LOAD_FAULT)
     expect(mem.load8(0) == 0, "unmapped read should return 0");
